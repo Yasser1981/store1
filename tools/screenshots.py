@@ -35,12 +35,13 @@ def seed(repo: Repository):
              work_type="network", voltage="33", tech_class="new", submit_no="1101", submit_date=date(2026, 1, 12),
              response="approved", response_no="2240", response_date=date(2026, 2, 3), labor_alloc=450_000_000,
              materials_alloc=320_000_000, committee_head_id=h1, start_no="310", start_date=date(2026, 3, 1),
+             actual_start_date=date(2026, 3, 4),
              materials={m[0]: 6200, m[5]: 48}),
         dict(order_no=2, order_type="operational", project_name="تأهيل مغذي 11 ك.ف المركز/5",
              work_type="network", voltage="11", tech_class="rehab", sector_id=s["المركز"], submit_no="1150",
              submit_date=date(2026, 2, 2), response="approved", response_no="2301", response_date=date(2026, 3, 8),
              labor_alloc=85_000_000, materials_alloc=0, committee_head_id=h2, start_no="402",
-             start_date=date(2026, 4, 1), close_no="977", close_date=date(2026, 9, 20),
+             start_date=date(2026, 4, 1), actual_start_date=date(2026, 4, 1), close_no="977", close_date=date(2026, 9, 20),
              materials={m[2]: 900, m[6]: 14, m[9]: 2}),
         dict(order_no=3, order_type="trust", project_name="شبكة ضغط واطئ حي الأسرة – الحسينية",
              work_type="network", voltage="lv", sector_id=s["الحسينية"], submit_no="1203", submit_date=date(2026, 3, 15),
@@ -96,6 +97,13 @@ def main(out: Path):
     app.processEvents()
     dlg.grab().save(str(out / "3_order_dialog.png"))
     dlg.close()
+
+    sub = OrderDialog(repo, repo.get_order(4), win, TODAY)
+    sub.resize(1100, 1100)
+    sub.show()
+    app.processEvents()
+    sub.grab().save(str(out / "3d_substation_order.png"))
+    sub.close()
 
     new = OrderDialog(repo, None, win, TODAY)
     new.resize(1100, 760)

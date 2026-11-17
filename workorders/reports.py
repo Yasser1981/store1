@@ -377,7 +377,8 @@ def _detail_columns(material_items: list[LookupItem]) -> list[Column]:
         Column("head", "رئيس اللجنة", width=20, pct=7),
         Column("start", "أمر المباشرة", in_excel=False, pct=6),
         Column("start_no", "رقم أمر المباشرة", in_print=False, width=12),
-        Column("start_date", "تاريخ المباشرة", "date", in_print=False, width=12),
+        Column("start_date", "تاريخ الأمر الإداري بالمباشرة", "date", in_print=False, width=14),
+        Column("actual_start_date", "تاريخ المباشرة الفعلي", "date", in_print=False, width=14),
         Column("end", "الغلق / الإلغاء", in_excel=False, pct=6),
         Column("close_no", "رقم كتاب الغلق", in_print=False, width=12),
         Column("close_date", "تاريخ الغلق", "date", in_print=False, width=12),
@@ -402,8 +403,16 @@ def _book_lines(prefix: str, number: str | None, when: date | None) -> str:
     return "\n".join(lines) if (number or when) else ""
 
 
+def _start_lines(o: WorkOrder) -> str:
+    """أمر المباشرة للطباعة: رقمه وتاريخه، وتاريخ المباشرة الفعلي إذا اختلف عنه."""
+    text = _book_lines("", o.start_no, o.start_date)
+    if o.actual_start_date and o.actual_start_date != o.start_date:
+        text += f"\nالمباشرة الفعلية {fmt_date(o.actual_start_date)}"
+    return text
+
+
 def report_detail(orders, ctx, filters_text) -> Report:
-    used_ids = {mid for o in orders for mid in o.materials}
+    used_ids = {mid for o in orders for mid in o.effective_materials}
     material_items = [m for m in ctx.materials if m.id in used_ids]
     columns = _detail_columns(material_items)
     rows = []
@@ -441,9 +450,10 @@ def report_detail(orders, ctx, filters_text) -> Report:
             "labor_alloc": o.labor_alloc,
             "materials_alloc": o.materials_alloc,
             "head": o.committee_head_name or "",
-            "start": _book_lines("", o.start_no, o.start_date),
+            "start": _start_lines(o),
             "start_no": o.start_no or "",
             "start_date": o.start_date,
+            "actual_start_date": o.actual_start_date,
             "end": end,
             "close_no": o.close_no or "",
             "close_date": o.close_date,
@@ -454,7 +464,7 @@ def report_detail(orders, ctx, filters_text) -> Report:
             "notes": o.notes,
         }
         for m in material_items:
-            row[f"mat_{m.id}"] = o.materials.get(m.id)
+            row[f"mat_{m.id}"] = o.effective_materials.get(m.id)
         rows.append(row)
     table = Table(columns=columns, rows=rows)
     table.compute_totals("project_name")
@@ -473,8 +483,8 @@ def report_materials(orders, ctx, filters_text) -> Report:
     summary_rows = []
     details: list[Table] = []
     for i, m in enumerate(ctx.materials, start=1):
-        using = [o for o in orders if m.id in o.materials]
-        qty = sum(o.materials[m.id] for o in using)
+        using = [o for o in orders if m.id in o.effective_materials]
+        qty = sum(o.effective_materials[m.id] for o in using)
         summary_rows.append({"seq": i, "name": m.name, "unit": m.unit, "orders": len(using), "qty": qty})
         if using:
             rows = []
@@ -485,7 +495,7 @@ def report_materials(orders, ctx, filters_text) -> Report:
                     "order_type": o.order_type_label,
                     "project_name": o.project_name,
                     "status": compute_status(o, ctx.today),
-                    "qty": o.materials[m.id],
+                    "qty": o.effective_materials[m.id],
                 })
             t = Table(
                 title=f"{m.name} ({m.unit})",
@@ -503,7 +513,8 @@ def report_materials(orders, ctx, filters_text) -> Report:
             details.append(t)
     summary = Table(columns=summary_cols, rows=summary_rows, title="الكميات الإجمالية")
     return Report("المواد الحاكمة الداخلة في أوامر العمل", filters_text, [summary] + details,
-                  ["القابلوات والأسلاك بالمتر، والأعمدة والمحولات بالعدد."])
+                  ["القابلوات والأسلاك بالمتر، والأعمدة والمحولات بالعدد.",
+                   "المواد الحاكمة تخص أوامر عمل الشبكة الكهربائية فقط."])
 
 
 def report_overdue(orders, ctx, filters_text, days: int) -> Report:

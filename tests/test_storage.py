@@ -60,6 +60,7 @@ def test_save_load_roundtrip(repo):
                    submit_no="1234", submit_date=date(2026, 2, 1), response="approved", response_no="555",
                    response_date=date(2026, 3, 1), labor_alloc=120_000_000, materials_alloc=30_000_000,
                    committee_head_id=head_id, start_no="77", start_date=date(2026, 4, 1),
+                   actual_start_date=date(2026, 3, 28),
                    materials={1: 1500, 7: 20}, notes="ملاحظة")
     oid = repo.save_order(o)
     got = repo.get_order(oid)
@@ -68,6 +69,7 @@ def test_save_load_roundtrip(repo):
     assert got.materials == {1: 1500, 7: 20}
     assert got.labor_alloc == 120_000_000
     assert got.start_date == date(2026, 4, 1)
+    assert got.actual_start_date == date(2026, 3, 28)
     got.materials = {2: 10}
     got.close_no, got.close_date = "88", date(2026, 9, 1)
     repo.save_order(got)
@@ -137,3 +139,28 @@ def test_inspect_rejects_foreign_file(tmp_path):
     p.write_bytes(b"garbage" * 50)
     with pytest.raises(NotOurDatabaseError):
         backup.inspect_backup(p)
+
+
+def test_upgrade_from_schema_1_keeps_data(tmp_path):
+    """محاكاة قاعدة بيانات من الإصدار 1.0.x وتحديثها تلقائياً دون فقدان البيانات."""
+    from workorders import db as dbmod
+
+    path = tmp_path / "old.db"
+    conn = dbmod.connect(path)
+    with dbmod.transaction(conn):
+        dbmod._migration_1(conn)
+        conn.execute("PRAGMA user_version = 1")
+        conn.execute(
+            "INSERT INTO work_orders(order_no, order_year, order_type, project_name, work_type, submit_no, "
+            "submit_date, response, response_no, response_date, start_no, start_date, created_at, updated_at) "
+            "VALUES (5, 2026, 'trust', 'مشروع قديم', 'civil', '1', '2026-01-02', 'approved', '2', '2026-02-01', "
+            "'3', '2026-03-01', 'x', 'x')")
+    conn.close()
+    calls = []
+    conn = open_database(path, backup_before_upgrade=calls.append)
+    assert calls == [1]  # أُخذت نسخة احتياطية قبل التحديث
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
+    o = Repository(conn).all_orders()[0]
+    assert o.project_name == "مشروع قديم"
+    assert o.actual_start_date == date(2026, 3, 1)  # أخذ قيمته من تاريخ الأمر الإداري
+    conn.close()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from datetime import date
 
@@ -77,6 +78,7 @@ class OrderDialog(QDialog):
         self.setWindowFlag(Qt.WindowMaximizeButtonHint, True)
 
         self.fields: dict[str, QWidget] = {}
+        self._numbered_sections: list[tuple[QGroupBox, str]] = []
         self._build()
         self._load(self.order)
         self._loading = False
@@ -151,7 +153,14 @@ class OrderDialog(QDialog):
         outer.addLayout(buttons)
 
     def _section(self, title: str) -> tuple[QGroupBox, QGridLayout]:
+        # الأقسام المرقمة يُعاد ترقيمها تلقائياً حسب الأقسام الظاهرة
+        match = re.match(r"^\d+\.\s*", title)
+        if match:
+            title = title[match.end():]
+            self._numbered_sections.append((None, title))
         box = QGroupBox(title)
+        if match:
+            self._numbered_sections[-1] = (box, title)
         grid = QGridLayout(box)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
@@ -183,6 +192,7 @@ class OrderDialog(QDialog):
         self.project_edit.setPlaceholderText("مثال: استحداث مغذي 11 ك.ف ...")
         self.project_edit.setMaxLength(300)
         self.work_combo = make_combo(WORK_TYPES)
+        self.work_combo.setMinimumWidth(260)
         self.voltage_combo = make_combo(VOLTAGES)
         self.tech_combo = make_combo(TECH_CLASSES)
         self.sector_combo = make_combo([])
@@ -263,6 +273,7 @@ class OrderDialog(QDialog):
 
     def _build_materials(self):
         box, g = self._section("4. المواد الحاكمة الداخلة في المشروع (اترك الحقل فارغاً إذا لم تدخل المادة)")
+        self.materials_box = box  # يظهر لأوامر عمل الشبكة الكهربائية فقط
         self.material_edits: dict[int, NumberEdit] = {}
         items = self.repo.materials()
         active_ids = {m.id for m in items}
@@ -297,16 +308,43 @@ class OrderDialog(QDialog):
         self._fill_heads()
         self.start_no = NumberEdit(placeholder="رقم الأمر الإداري")
         self.start_date = DateEdit()
+        self.actual_start = DateEdit()
+        self.actual_start.line.setToolTip("يؤخذ تلقائياً من تاريخ الأمر الإداري، ويمكن تعديله إذا اختلف تاريخ المباشرة الفعلي")
+        actual_hint = QLabel("يُملأ تلقائياً من تاريخ الأمر الإداري، ويمكن تعديله")
+        actual_hint.setObjectName("hint")
         g.addWidget(self._label("رئيس لجنة التنفيذ"), 1, 0)
         g.addWidget(self.head_combo, 1, 1, 1, 3)
         g.addWidget(self._label("رقم الأمر الإداري بالمباشرة"), 2, 0)
         g.addWidget(self.start_no, 2, 1)
         g.addWidget(self._label("تاريخ الأمر الإداري"), 2, 2)
         g.addWidget(self.start_date, 2, 3)
-        self.fields.update(committee_head=self.head_combo, start_no=self.start_no, start_date=self.start_date.line)
+        g.addWidget(self._label("تاريخ المباشرة الفعلي"), 3, 0)
+        g.addWidget(self.actual_start, 3, 1)
+        g.addWidget(actual_hint, 3, 2, 1, 2)
+        self.fields.update(committee_head=self.head_combo, start_no=self.start_no, start_date=self.start_date.line,
+                           actual_start_date=self.actual_start.line)
+        # تاريخ المباشرة الفعلي يتبع تاريخ الأمر الإداري ما لم يعدّله المستخدم
+        self._actual_follows = True
+        self._syncing_actual = False
         self.head_combo.currentTextChanged.connect(self._refresh)
         self.start_no.textChanged.connect(self._refresh)
-        self.start_date.changed.connect(self._refresh)
+        self.start_date.changed.connect(self._on_start_date_changed)
+        self.actual_start.changed.connect(self._on_actual_changed)
+
+    def _on_start_date_changed(self):
+        if self._actual_follows and not self._loading:
+            d = self.start_date.date()
+            if d is not None or self.start_date.is_empty():
+                self._syncing_actual = True
+                self.actual_start.set_date(d)
+                self._syncing_actual = False
+        self._refresh()
+
+    def _on_actual_changed(self):
+        if not self._syncing_actual and not self._loading:
+            actual = self.actual_start.date()
+            self._actual_follows = self.actual_start.is_empty() or actual == self.start_date.date()
+        self._refresh()
 
     def _fill_heads(self):
         heads = self.repo.committee_heads()
@@ -393,6 +431,8 @@ class OrderDialog(QDialog):
             set_combo_value(self.head_combo, o.committee_head_id)
         self.start_no.set_value(o.start_no)
         self.start_date.set_date(o.start_date)
+        self.actual_start.set_date(o.actual_start_date)
+        self._actual_follows = o.actual_start_date is None or o.actual_start_date == o.start_date
         self.close_no.set_value(o.close_no)
         self.close_date.set_date(o.close_date)
         self.cancel_check.setChecked(o.has_cancel)
@@ -434,13 +474,15 @@ class OrderDialog(QDialog):
             o.labor_alloc = self.labor_edit.value()
             o.materials_alloc = self.materials_alloc_edit.value()
 
-        o.materials = {mid: e.value() for mid, e in self.material_edits.items() if e.value()}
+        if o.work_type == "network":  # المواد الحاكمة لأوامر عمل الشبكة الكهربائية فقط
+            o.materials = {mid: e.value() for mid, e in self.material_edits.items() if e.value()}
 
         head_id, head_name = self._head_selection()
         o.committee_head_id = head_id
         o.committee_head_name = head_name or None
         o.start_no = self.start_no.text_value()
         o.start_date = self.start_date.date()
+        o.actual_start_date = self.actual_start.date()
         o.close_no = self.close_no.text_value()
         o.close_date = self.close_date.date()
         if self.cancel_check.isChecked():
@@ -450,7 +492,7 @@ class OrderDialog(QDialog):
         # للحساب الصحيح للحالة أثناء الإدخال حتى لو كان التاريخ ناقصاً
         self._partial_flags = {
             "submit": bool(o.submit_no) or not self.submit_date.is_empty(),
-            "start": bool(o.start_no) or not self.start_date.is_empty(),
+            "start": bool(o.start_no) or not self.start_date.is_empty() or not self.actual_start.is_empty(),
             "close": bool(o.close_no) or not self.close_date.is_empty(),
             "cancel": self.cancel_check.isChecked(),
         }
@@ -461,6 +503,7 @@ class OrderDialog(QDialog):
         data = asdict(o)
         data["_head_text"] = clean_spaces(self.head_combo.currentText())
         data["_dates"] = [d.line.text() for d in (self.submit_date, self.response_date, self.start_date,
+                                                    self.actual_start,
                                                     self.close_date, self.cancel_date)]
         return data
 
@@ -489,6 +532,12 @@ class OrderDialog(QDialog):
             w.setVisible(show_tech)
         for w in (self.sector_lbl, self.sector_combo):
             w.setVisible(show_sector)
+        self.materials_box.setVisible(network)
+        number = 1
+        for box, title in self._numbered_sections:
+            if not box.isHidden():
+                box.setTitle(f"{number}. {title}")
+                number += 1
 
         # ---- فحص رقم أمر العمل فوراً
         self._update_number_check(o)
@@ -577,6 +626,7 @@ class OrderDialog(QDialog):
             (self.response_date, "response_date", "تاريخ كتاب الرد", self.response_date.isVisible() or
              (combo_value(self.response_combo) or "pending") != "pending"),
             (self.start_date, "start_date", "تاريخ الأمر الإداري بالمباشرة", True),
+            (self.actual_start, "actual_start_date", "تاريخ المباشرة الفعلي", True),
             (self.close_date, "close_date", "تاريخ الغلق", True),
             (self.cancel_date, "cancel_date", "تاريخ الإلغاء", self.cancel_check.isChecked()),
         ]

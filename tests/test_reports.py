@@ -24,8 +24,8 @@ def seed(repo):
         make_order(order_no=4, order_type="investment", work_type="substation",
                    submit_no="12", submit_date=date(2026, 3, 3), response="approved", response_no="21",
                    response_date=date(2026, 4, 2), labor_alloc=2_000_000, committee_head_id=head,
-                   start_no="30", start_date=date(2026, 5, 1),
-                   materials={1: 50}, project_name="محطة ثانوية"),
+                   start_no="30", start_date=date(2026, 5, 1), actual_start_date=date(2026, 5, 3),
+                   materials={1: 50}, project_name="محطة ثانوية"),  # مواد مسجلة سابقاً لأمر غير شبكة: تُهمل
         make_order(order_no=5, order_type="investment", work_type="civil",
                    submit_no="13", submit_date=date(2026, 3, 4), response="rejected", response_no="22",
                    response_date=date(2026, 4, 3), project_name="أعمال مدنية مرفوضة"),
@@ -73,7 +73,7 @@ def test_materials_report(repo):
     rep = build_report("materials", repo.all_orders(), ctx, OrderFilter())
     summary = {r["name"]: r for r in rep.tables[0].rows}
     first = ctx.materials[0].name
-    assert summary[first]["qty"] == 150 and summary[first]["orders"] == 2
+    assert summary[first]["qty"] == 100 and summary[first]["orders"] == 1
     assert len(rep.tables) == 3  # الملخص + مادتان مستخدمتان
 
 

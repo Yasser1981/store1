@@ -84,6 +84,10 @@ def test_new_order_flow(app, repo, boxes):
     dlg.head_combo.setEditText("م. حسن جواد")
     dlg.start_no.setText("45")
     dlg.start_date.set_date(date(2026, 5, 1))
+    assert dlg.actual_start.date() == date(2026, 5, 1)  # يؤخذ تلقائياً من تاريخ الأمر الإداري
+    dlg.actual_start.set_date(date(2026, 5, 4))  # المستخدم يعدّله
+    dlg.start_date.set_date(date(2026, 5, 2))
+    assert dlg.actual_start.date() == date(2026, 5, 4)  # لا يُستبدل بعد تعديله يدوياً
     assert dlg.close_box.isEnabled()
     assert dlg.status_chip.text().startswith("مباشر")
 
@@ -94,6 +98,7 @@ def test_new_order_flow(app, repo, boxes):
     assert saved.order_no == 15 and saved.voltage == "11" and saved.tech_class == "new"
     assert saved.labor_alloc == 250_000_000
     assert saved.materials == {first_material: 1500}
+    assert saved.start_date == date(2026, 5, 2) and saved.actual_start_date == date(2026, 5, 4)
     assert saved.committee_head_name == "م. حسن جواد"
     assert any(b[1] == "اسم جديد" for b in boxes)
 
@@ -187,3 +192,18 @@ def test_auto_cancel_shown_and_start_without_head(app, repo, boxes):
     dlg._save(and_new=False)
     assert dlg.saved_id == oid, boxes
     assert repo.get_order(oid).committee_head_id is None
+
+
+def test_materials_hidden_for_non_network(app, repo, boxes):
+    dlg = od.OrderDialog(repo, None, today=TODAY)
+    dlg.no_edit.setText("30")
+    set_combo(dlg.type_combo, "investment")
+    dlg.project_edit.setText("نصب معدات")
+    set_combo(dlg.work_combo, "network")
+    assert not dlg.materials_box.isHidden()
+    first = next(iter(dlg.material_edits))
+    dlg.material_edits[first].setText("40")
+    set_combo(dlg.work_combo, "substation")
+    assert dlg.materials_box.isHidden()
+    dlg._save(and_new=False)
+    assert repo.get_order(dlg.saved_id).materials == {}

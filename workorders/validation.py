@@ -142,9 +142,14 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
             add("labor_alloc", "مبالغ التخصيص تُدخل بعد ورود الموافقة.")
         if o.response == "pending" and (o.has_start or o.committee_head_id is not None):
             add("start_no", "لا يمكن إدخال بيانات التنفيذ قبل ورود الموافقة.")
-    if o.start_date is not None and o.order_year is not None and o.start_date.year > o.order_year:
-        add("start_date",
-            f"تاريخ المباشرة ({fmt_date(o.start_date)}) يجب أن يكون ضمن سنة أمر العمل ({o.order_year})، "
+    if (o.start_no or o.start_date) and o.actual_start_date is None:
+        add("actual_start_date", "أدخل تاريخ المباشرة الفعلي (يؤخذ افتراضياً من تاريخ الأمر الإداري).")
+    if o.actual_start_date is not None and not (o.start_no or o.start_date):
+        add("start_no", "أدخل رقم وتاريخ الأمر الإداري بالمباشرة مع تاريخ المباشرة الفعلي.")
+    actual = o.actual_start_date
+    if actual is not None and o.order_year is not None and actual.year > o.order_year:
+        add("actual_start_date",
+            f"تاريخ المباشرة الفعلي ({fmt_date(actual)}) يجب أن يكون ضمن سنة أمر العمل ({o.order_year})، "
             "لأن أمر العمل الذي لا يُباشر به خلال سنته يُلغى تلقائياً.")
     if o.has_close and not o.has_start:
         add("close_no", "لا يمكن غلق أمر العمل قبل إدخال الأمر الإداري بالمباشرة.")
@@ -160,25 +165,28 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
             break
 
     # ---------------- التواريخ ----------------
-    dated = [
-        ("submit_date", "تاريخ كتاب الرفع", o.submit_date),
-        ("response_date", "تاريخ كتاب رد الشركة العامة", o.response_date if o.response != "pending" else None),
-        ("start_date", "تاريخ أمر المباشرة", o.start_date),
-        ("close_date", "تاريخ الغلق", o.close_date),
-        ("cancel_date", "تاريخ الإلغاء", o.cancel_date),
-    ]
+    submit = ("submit_date", "تاريخ كتاب الرفع", o.submit_date)
+    response = ("response_date", "تاريخ كتاب رد الشركة العامة",
+                o.response_date if o.response != "pending" else None)
+    start_book = ("start_date", "تاريخ الأمر الإداري بالمباشرة", o.start_date)
+    start_actual = ("actual_start_date", "تاريخ المباشرة الفعلي", o.actual_start_date)
+    close = ("close_date", "تاريخ الغلق", o.close_date)
+    cancel = ("cancel_date", "تاريخ الإلغاء", o.cancel_date)
+    dated = [submit, response, start_book, start_actual, close, cancel]
     for fname, title, d in dated:
         if d is not None and d > today:
             add(fname, f"{title} ({fmt_date(d)}) لا يمكن أن يكون بعد تاريخ اليوم.")
 
-    sequence = dated[:4]  # الرفع ← الرد ← المباشرة ← الغلق
-    previous = None
-    for fname, title, d in sequence:
-        if d is None:
-            continue
-        if previous is not None and d < previous[2]:
-            add(fname, f"{title} ({fmt_date(d)}) لا يمكن أن يسبق {previous[1]} ({fmt_date(previous[2])}).")
-        previous = (fname, title, d)
+    # تسلسل المراحل: الرفع ← الرد ← المباشرة (كتابها وتاريخها الفعلي بأي ترتيب بينهما) ← الغلق
+    order_rules = [
+        (response, submit),
+        (start_book, response), (start_actual, response),
+        (close, start_book), (close, start_actual),
+    ]
+    for (fname, title, d), (_, prev_title, prev) in order_rules:
+        if d is not None and prev is not None and d < prev:
+            add(fname, f"{title} ({fmt_date(d)}) لا يمكن أن يسبق {prev_title} ({fmt_date(prev)}).")
+    sequence = dated[:5]
     if o.cancel_date is not None:
         for fname, title, d in sequence:
             if d is not None and o.cancel_date < d:

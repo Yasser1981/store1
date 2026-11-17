@@ -151,7 +151,7 @@ class OrdersPage(QWidget):
                 SortItem(fmt_date(o.response_date) if o.response == "approved" else "",
                          o.response_date if o.response == "approved" and o.response_date else date.min),
                 SortItem(o.committee_head_name or ""),
-                SortItem(fmt_date(o.start_date), o.start_date or date.min),
+                SortItem(fmt_date(o.commencement_date), o.commencement_date or date.min),
                 SortItem(fmt_date(o.close_date), o.close_date or date.min),
                 SortItem(f"إلى {rolled}" if rolled else "", rolled or 0),
             ]

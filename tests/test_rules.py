@@ -18,6 +18,7 @@ def started(**kw):
                 response_date=date(2026, 3, 1), committee_head_id=1, start_no="300",
                 start_date=date(2026, 4, 1))
     base.update(kw)
+    base.setdefault("actual_start_date", base["start_date"])  # افتراضياً = تاريخ الأمر الإداري
     return make_order(**base)
 
 
@@ -218,7 +219,42 @@ def test_auto_cancelled_number_is_freed():
     assert not number_conflicts(new, [old], NEW_YEAR)  # بعد حلول السنة الجديدة: الرقم متحرر
 
 
-def test_start_date_must_be_within_order_year():
+def test_actual_start_must_be_within_order_year():
     o = started(start_date=date(2027, 2, 15))
-    assert "start_date" in fields(validate(o, [], date(2027, 3, 1)))
-    assert "start_date" not in fields(validate(started(), [], date(2027, 3, 1)))
+    assert "actual_start_date" in fields(validate(o, [], date(2027, 3, 1)))
+    assert "actual_start_date" not in fields(validate(started(), [], date(2027, 3, 1)))
+    # المعتمد هو التاريخ الفعلي: كتاب في 2027 لمباشرة فعلية في 2026 مقبول
+    o = started(start_date=date(2027, 1, 5), actual_start_date=date(2026, 12, 20))
+    assert validate(o, [], date(2027, 3, 1)) == []
+
+
+# ---------------------------------------------------------------- تاريخ المباشرة الفعلي
+def test_actual_start_required_with_book():
+    o = started(actual_start_date=None)
+    assert "actual_start_date" in fields(validate(o, [], TODAY))
+    o = make_order(submit_no="1", submit_date=date(2026, 1, 1), response="approved", response_no="2",
+                   response_date=date(2026, 2, 1), actual_start_date=date(2026, 3, 1))
+    assert "start_no" in fields(validate(o, [], TODAY))
+
+
+def test_actual_start_may_be_before_or_after_book_date():
+    assert validate(started(actual_start_date=date(2026, 3, 20)), [], TODAY) == []  # قبل الكتاب
+    assert validate(started(actual_start_date=date(2026, 4, 10)), [], TODAY) == []  # بعد الكتاب
+
+
+def test_actual_start_after_approval_and_before_close():
+    o = started(actual_start_date=date(2026, 2, 20))  # قبل الموافقة
+    assert "actual_start_date" in fields(validate(o, [], TODAY))
+    o = started(actual_start_date=date(2026, 6, 1), close_no="5", close_date=date(2026, 5, 1))
+    assert "close_date" in fields(validate(o, [], TODAY))
+
+
+def test_rollover_and_auto_cancel_use_actual_date():
+    o = started(start_date=date(2027, 1, 5), actual_start_date=date(2026, 12, 20))
+    assert rolled_to_year(o, date(2027, 2, 1)) == 2027
+    assert compute_status(o, date(2027, 2, 1)) == Status.STARTED
+
+
+def test_materials_only_for_network():
+    assert make_order(work_type="civil", materials={1: 5}).effective_materials == {}
+    assert make_order(work_type="network", voltage="lv", materials={1: 5}).effective_materials == {1: 5}

@@ -69,7 +69,8 @@ class WorkOrder:
     # 4. التنفيذ
     committee_head_id: int | None = None
     start_no: str | None = None
-    start_date: date | None = None
+    start_date: date | None = None  # تاريخ الأمر الإداري بالمباشرة
+    actual_start_date: date | None = None  # تاريخ المباشرة الفعلي (افتراضياً = تاريخ الأمر الإداري)
 
     # 5. الغلق
     close_no: str | None = None
@@ -103,7 +104,17 @@ class WorkOrder:
 
     @property
     def has_start(self) -> bool:
-        return bool(self.start_no or self.start_date)
+        return bool(self.start_no or self.start_date or self.actual_start_date)
+
+    @property
+    def commencement_date(self) -> date | None:
+        """تاريخ المباشرة المعتمد في الحسابات (التدوير، الإلغاء التلقائي، التسلسل): التاريخ الفعلي."""
+        return self.actual_start_date or self.start_date
+
+    @property
+    def effective_materials(self) -> dict[int, int]:
+        """المواد الحاكمة تخص أوامر عمل الشبكة الكهربائية فقط."""
+        return self.materials if self.is_network else {}
 
     @property
     def has_close(self) -> bool:
@@ -192,9 +203,10 @@ def rolled_to_year(o: WorkOrder, today: date) -> int | None:
     إلى السنة التالية، وهكذا لكل سنة لاحقة لا يُغلق فيها.
     ترجع الدالة آخر سنة دُوِّر إليها الأمر، أو None إذا لم يُدوَّر.
     """
-    if not o.start_date:
+    started_on = o.commencement_date
+    if not started_on:
         return None
-    start_year = o.start_date.year
+    start_year = started_on.year
     if o.close_date:
         end_year = o.close_date.year
     elif o.cancel_date:

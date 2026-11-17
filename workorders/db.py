@@ -16,7 +16,7 @@ from pathlib import Path
 from . import __version__
 from .constants import APP_ID, DEFAULT_MATERIALS, DEFAULT_SECTORS
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class DatabaseError(Exception):
@@ -161,8 +161,15 @@ def _migration_1(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO materials(name, unit, sort_order) VALUES (?, ?, ?)", (name, unit, i))
 
 
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """الإصدار 1.1.0: إضافة تاريخ المباشرة الفعلي، ويأخذ قيمته من تاريخ الأمر الإداري للأوامر الموجودة."""
+    conn.execute("ALTER TABLE work_orders ADD COLUMN actual_start_date TEXT")
+    conn.execute("UPDATE work_orders SET actual_start_date = start_date WHERE start_date IS NOT NULL")
+
+
 MIGRATIONS = {
     1: _migration_1,
+    2: _migration_2,
 }
 
 
