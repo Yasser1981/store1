@@ -34,7 +34,7 @@ from ..constants import (
     VOLTAGES_WITH_TECH,
     WORK_TYPES,
 )
-from ..models import WorkOrder, rolled_to_year
+from ..models import WorkOrder, compute_status, rolled_to_year
 from ..repository import Repository
 from ..textutil import clean_spaces
 from ..validation import Issue, allowed_years, number_conflicts, validate
@@ -539,7 +539,7 @@ class OrderDialog(QDialog):
             status_order.close_no = "?"
         if flags["cancel"] and not status_order.has_cancel:
             status_order.cancel_no = "?"
-        status = status_order.status
+        status = compute_status(status_order, self.today)
         fg, bg = STATUS_COLORS[status]
         self.status_chip.set_status(STATUS_LABELS[status], fg, bg)
         year = rolled_to_year(o, self.today)
@@ -557,7 +557,7 @@ class OrderDialog(QDialog):
             self.no_check.setText(f"آخر رقم مستخدم لسنة {o.order_year}: {last}" if last else "")
         else:
             others = [x for x in self.repo.orders_with_number(o.order_no) if x.id != o.id]
-            problems = number_conflicts(o, others)
+            problems = number_conflicts(o, others, self.today)
             if problems:
                 self.no_check.setObjectName("errorText")
                 self.no_check.setText("✖ " + problems[0])

@@ -15,13 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from workorders.db import open_database  # noqa: E402
-from workorders.models import WorkOrder  # noqa: E402
+from workorders.models import WorkOrder, set_reference_date  # noqa: E402
 from workorders.paths import AppPaths  # noqa: E402
 from workorders.reports import OrderFilter, ReportContext, build_report  # noqa: E402
 from workorders.repository import Repository  # noqa: E402
 from workorders.ui.style import apply_style  # noqa: E402
 
 TODAY = date(2026, 11, 17)
+set_reference_date(TODAY)
 
 
 def seed(repo: Repository):

@@ -21,9 +21,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..constants import STATUS_COLORS
+from ..constants import STATUS_COLORS, STATUS_LABELS
 from ..export import report_to_xlsx
-from ..models import WorkOrder, rolled_to_year
+from ..models import WorkOrder, compute_status, rolled_to_year
 from ..reports import ReportContext, apply_filter, describe_filter, report_detail
 from ..repository import Repository
 from ..textutil import fmt_date
@@ -138,11 +138,12 @@ class OrdersPage(QWidget):
         self.table.setRowCount(len(self.visible))
         for r, o in enumerate(self.visible):
             rolled = rolled_to_year(o, self.today)
+            status = compute_status(o, self.today)
             values = [
                 SortItem(str(o.order_no), o.order_no),
                 SortItem(str(o.order_year), o.order_year),
                 SortItem(o.order_type_label),
-                SortItem(o.status_label),
+                SortItem(STATUS_LABELS[status]),
                 SortItem(o.project_name),
                 SortItem(o.work_description),
                 SortItem(o.sector_name or "" if o.needs_sector else ""),
@@ -161,7 +162,7 @@ class OrdersPage(QWidget):
                 if c in (COL_PROJECT, COL_WORK):
                     item.setToolTip(item.text())
                 if c == COL_STATUS:
-                    fg, bg = STATUS_COLORS[o.status]
+                    fg, bg = STATUS_COLORS[status]
                     item.setForeground(QColor(fg))
                     item.setBackground(QColor(bg))
                 self.table.setItem(r, c, item)

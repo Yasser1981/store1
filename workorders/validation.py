@@ -5,8 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from .constants import FIRST_YEAR, ORDER_TYPES, RESPONSES, TECH_CLASSES, VOLTAGES, WORK_TYPES
-from .models import WorkOrder
+from .constants import (
+    FINISHED_STATUSES,
+    FIRST_YEAR,
+    ORDER_TYPES,
+    RESPONSES,
+    STATUS_LABELS,
+    TECH_CLASSES,
+    VOLTAGES,
+    WORK_TYPES,
+)
+from .models import WorkOrder, compute_status
 from .textutil import fmt_date
 
 MAX_PROJECT_NAME = 300
@@ -23,14 +32,18 @@ def allowed_years(today: date) -> list[int]:
     return list(range(FIRST_YEAR, max(FIRST_YEAR, today.year) + 2))
 
 
-def number_conflicts(o: WorkOrder, others: list[WorkOrder]) -> list[str]:
+def number_conflicts(o: WorkOrder, others: list[WorkOrder], today: date | None = None) -> list[str]:
     """قواعد رقم أمر العمل:
     - لا يتكرر الرقم في نفس السنة أبداً، حتى لو اختلف نوع الأمر.
     - لا يُستخدم الرقم ما دام أمر العمل الذي يحمله (من سنة سابقة) غير منتهٍ.
-      المنتهي: المغلق أو الملغى أو المرفوض.
+      المنتهي: المغلق أو الملغى (بكتاب أو تلقائياً) أو المرفوض.
     `others`: أوامر العمل الأخرى التي تحمل نفس الرقم.
     """
     messages = []
+
+    def finished(w: WorkOrder) -> bool:
+        return compute_status(w, today) in FINISHED_STATUSES
+
     if o.order_no is None or o.order_year is None:
         return messages
     for x in sorted(others, key=lambda w: w.order_year or 0):
@@ -45,13 +58,13 @@ def number_conflicts(o: WorkOrder, others: list[WorkOrder]) -> list[str]:
                 "لا يجوز تكرار الرقم في نفس السنة حتى لو اختلف نوع الأمر."
             )
         elif x.order_year < o.order_year:
-            if not x.is_finished:
+            if not finished(x):
                 messages.append(
                     f"لا يمكن استخدام الرقم {o.order_no} لأن أمر العمل {x.ref} "
-                    f"(«{x.project_name}») ما زال غير مغلق ({x.status_label})."
+                    f"(«{x.project_name}») ما زال غير مغلق ({STATUS_LABELS[compute_status(x, today)]})."
                 )
         else:  # أمر لاحق يحمل نفس الرقم
-            if not o.is_finished:
+            if not finished(o):
                 messages.append(
                     f"الرقم {o.order_no} مستخدم في أمر عمل لاحق ({x.ref} – «{x.project_name}»)، "
                     "لذلك يجب أن يكون هذا الأمر مغلقاً أو ملغى أو مرفوضاً."
@@ -97,7 +110,7 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
         if o.needs_sector and o.sector_id is None:
             add("sector_id", "اختر قطاع التوزيع.")
 
-    for msg in number_conflicts(o, others_same_no):
+    for msg in number_conflicts(o, others_same_no, today):
         add("order_no", msg)
 
     # ---------------- الكتب الرسمية (رقم + تاريخ) ----------------
@@ -129,8 +142,10 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
             add("labor_alloc", "مبالغ التخصيص تُدخل بعد ورود الموافقة.")
         if o.response == "pending" and (o.has_start or o.committee_head_id is not None):
             add("start_no", "لا يمكن إدخال بيانات التنفيذ قبل ورود الموافقة.")
-    if o.has_start and o.committee_head_id is None:
-        add("committee_head", "اختر اسم رئيس لجنة التنفيذ قبل إدخال أمر المباشرة.")
+    if o.start_date is not None and o.order_year is not None and o.start_date.year > o.order_year:
+        add("start_date",
+            f"تاريخ المباشرة ({fmt_date(o.start_date)}) يجب أن يكون ضمن سنة أمر العمل ({o.order_year})، "
+            "لأن أمر العمل الذي لا يُباشر به خلال سنته يُلغى تلقائياً.")
     if o.has_close and not o.has_start:
         add("close_no", "لا يمكن غلق أمر العمل قبل إدخال الأمر الإداري بالمباشرة.")
     if o.has_close and o.has_cancel:

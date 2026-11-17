@@ -5,6 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+# التاريخ المرجعي لحساب الحالة (تاريخ اليوم). يمكن تثبيته في الاختبارات.
+_reference_date: date | None = None
+
+
+def reference_date() -> date:
+    return _reference_date or date.today()
+
+
+def set_reference_date(value: date | None) -> None:
+    global _reference_date
+    _reference_date = value
+
 from .constants import (
     FINISHED_STATUSES,
     ORDER_TYPES,
@@ -153,8 +165,9 @@ class WorkOrder:
         return self.status in FINISHED_STATUSES
 
 
-def compute_status(o: WorkOrder) -> str:
-    """تُحسب حالة أمر العمل تلقائياً من البيانات المدخلة."""
+def compute_status(o: WorkOrder, today: date | None = None) -> str:
+    """تُحسب حالة أمر العمل تلقائياً من البيانات المدخلة وتاريخ اليوم."""
+    today = today or reference_date()
     if o.has_cancel:
         return Status.CANCELLED
     if o.response == "rejected":
@@ -163,6 +176,9 @@ def compute_status(o: WorkOrder) -> str:
         return Status.CLOSED
     if o.has_start:
         return Status.STARTED
+    # الإلغاء التلقائي: أمر العمل الذي لم يُباشر به حتى نهاية سنته
+    if o.order_year is not None and today.year > o.order_year:
+        return Status.AUTO_CANCELLED
     if o.response == "approved":
         return Status.APPROVED
     if o.has_submit:

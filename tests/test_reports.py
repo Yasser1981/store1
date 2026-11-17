@@ -115,3 +115,19 @@ def test_detail_and_exports(repo, tmp_path):
         r = build_report(kind, repo.all_orders(), ctx, OrderFilter(order_type="investment"))
         report_to_xlsx(r, tmp_path / f"{kind}.xlsx")
         assert "نوع الأمر: استثماري" in report_to_html(r)
+
+
+def test_auto_cancelled_in_reports(repo):
+    ctx = seed(repo)
+    ctx.today = date(2027, 1, 10)
+    rep = build_report("progress", repo.all_orders(), ctx, OrderFilter())
+    total = rep.tables[0].total_row
+    assert total["auto_cancelled"] == 3  # 1 معدّ، 2 مرفوع، 3 موافق عليه ولم يُباشر به
+    assert total["pending"] == 0 and total["draft"] == 0
+    assert total["rolled"] == 1  # 4 مباشر به ولم يُغلق
+    rep = build_report("status", repo.all_orders(), ctx, OrderFilter())
+    assert rep.tables[0].total_row["auto_cancelled"] == 3
+    open_now = apply_filter(repo.all_orders(), OrderFilter(status="open"), ctx.today)
+    assert [o.order_no for o in open_now] == [4]
+    not_void = apply_filter(repo.all_orders(), OrderFilter(status="not_void"), ctx.today)
+    assert sorted(o.order_no for o in not_void) == [4]

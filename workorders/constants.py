@@ -60,6 +60,7 @@ class Status:
     CLOSED = "closed"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
+    AUTO_CANCELLED = "auto_cancelled"
 
 
 STATUS_LABELS = {
@@ -70,10 +71,14 @@ STATUS_LABELS = {
     Status.CLOSED: "مغلق",
     Status.REJECTED: "مرفوض",
     Status.CANCELLED: "ملغى",
+    Status.AUTO_CANCELLED: "ملغى تلقائياً – لم يُباشر به خلال سنته",
 }
 
 # الحالات التي ينتهي عندها أمر العمل ويتحرر رقمه
-FINISHED_STATUSES = (Status.CLOSED, Status.REJECTED, Status.CANCELLED)
+FINISHED_STATUSES = (Status.CLOSED, Status.REJECTED, Status.CANCELLED, Status.AUTO_CANCELLED)
+
+# الحالات الملغاة أو المرفوضة (تُستبعد بفلتر "عدا الملغاة والمرفوضة")
+VOID_STATUSES = (Status.REJECTED, Status.CANCELLED, Status.AUTO_CANCELLED)
 
 # ألوان الحالات في الشاشات والتقارير (لون النص، لون الخلفية)
 STATUS_COLORS = {
@@ -84,6 +89,7 @@ STATUS_COLORS = {
     Status.CLOSED: ("#1b5e20", "#e8f5e9"),
     Status.REJECTED: ("#b71c1c", "#ffebee"),
     Status.CANCELLED: ("#424242", "#e0e0e0"),
+    Status.AUTO_CANCELLED: ("#6d4c41", "#efebe9"),
 }
 
 UNIT_METER = "متر"

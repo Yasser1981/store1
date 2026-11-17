@@ -9,11 +9,12 @@ from .constants import (
     FINISHED_STATUSES,
     ORDER_TYPES,
     STATUS_LABELS,
+    VOID_STATUSES,
     VOLTAGES,
     WORK_TYPES,
     Status,
 )
-from .models import LookupItem, WorkOrder, rolled_to_year
+from .models import LookupItem, WorkOrder, compute_status, rolled_to_year
 from .textutil import fmt_date, normalize_digits, normalize_for_compare
 
 NOT_APPLICABLE = "لا ينطبق"
@@ -45,12 +46,12 @@ class OrderFilter:
         return self == OrderFilter()
 
 
-def _status_matches(o: WorkOrder, status: str | None) -> bool:
+def _status_matches(o: WorkOrder, status: str | None, today: date) -> bool:
     if status is None:
         return True
-    s = o.status
+    s = compute_status(o, today)
     if status == "not_void":
-        return s not in (Status.REJECTED, Status.CANCELLED)
+        return s not in VOID_STATUSES
     if status == "open":
         return s not in FINISHED_STATUSES
     return s == status
@@ -86,7 +87,7 @@ def apply_filter(orders: list[WorkOrder], f: OrderFilter, today: date) -> list[W
             continue
         if f.committee_head_id is not None and o.committee_head_id != f.committee_head_id:
             continue
-        if not _status_matches(o, f.status):
+        if not _status_matches(o, f.status, today):
             continue
         if f.rolled_only and rolled_to_year(o, today) is None:
             continue
@@ -280,29 +281,34 @@ def report_progress(orders, dim, ctx, filters_text) -> Report:
         Column("started", "المباشر بها", "int", total=True),
         Column("in_progress", "قيد التنفيذ", "int", total=True),
         Column("closed", "المغلقة", "int", total=True),
-        Column("cancelled", "الملغاة", "int", total=True),
+        Column("cancelled", "الملغاة بكتاب", "int", total=True),
+        Column("auto_cancelled", "الملغاة تلقائياً", "int", total=True),
         Column("rolled", "المدوّرة", "int", total=True),
     ]
 
     def build(items):
+        statuses = [compute_status(o, today) for o in items]
         return {
             "total": len(items),
-            "draft": sum(o.status == Status.DRAFT for o in items),
+            "draft": statuses.count(Status.DRAFT),
             "submitted": sum(o.has_submit for o in items),
-            "pending": sum(o.status == Status.SUBMITTED for o in items),
+            "pending": statuses.count(Status.SUBMITTED),
             "approved": sum(o.response == "approved" for o in items),
-            "rejected": sum(o.status == Status.REJECTED for o in items),
+            "rejected": statuses.count(Status.REJECTED),
             "started": sum(o.has_start for o in items),
-            "in_progress": sum(o.status == Status.STARTED for o in items),
-            "closed": sum(o.status == Status.CLOSED for o in items),
-            "cancelled": sum(o.status == Status.CANCELLED for o in items),
+            "in_progress": statuses.count(Status.STARTED),
+            "closed": statuses.count(Status.CLOSED),
+            "cancelled": statuses.count(Status.CANCELLED),
+            "auto_cancelled": statuses.count(Status.AUTO_CANCELLED),
             "rolled": sum(rolled_to_year(o, today) is not None for o in items),
         }
 
     table = _grouped_table(orders, dim, ctx, columns, build)
     notes = [
         "الأعمدة (المرفوعة، الموافق عليها، المباشر بها) تراكمية: تشمل الأوامر التي تجاوزت تلك المرحلة إلى ما بعدها.",
-        "الأعمدة (لم تُرفع بعد، لم ترد الموافقة، قيد التنفيذ، المغلقة، المرفوضة، الملغاة) تمثل الحالة الحالية.",
+        "الأعمدة (لم تُرفع بعد، لم ترد الموافقة، قيد التنفيذ، المغلقة، المرفوضة، الملغاة بكتاب، الملغاة تلقائياً) "
+        "تمثل الحالة الحالية.",
+        "الملغاة تلقائياً: أوامر العمل التي لم يُباشر بها حتى نهاية سنتها.",
         "المدوّرة: أوامر العمل المباشر بها التي لم تُغلق خلال سنة المباشرة.",
     ]
     return Report(f"ملخص سير العمل حسب {GROUP_BY[dim]}", filters_text, [table], notes, landscape=True)
@@ -315,8 +321,9 @@ def report_status(orders, dim, ctx, filters_text) -> Report:
 
     def build(items):
         row = {"total": len(items)}
+        statuses = [compute_status(o, ctx.today) for o in items]
         for code in STATUS_LABELS:
-            row[code] = sum(o.status == code for o in items)
+            row[code] = statuses.count(code)
         return row
 
     table = _grouped_table(orders, dim, ctx, columns, build)
@@ -442,7 +449,7 @@ def report_detail(orders, ctx, filters_text) -> Report:
             "close_date": o.close_date,
             "cancel_no": o.cancel_no or "",
             "cancel_date": o.cancel_date,
-            "status": o.status,
+            "status": compute_status(o, ctx.today),
             "rolled": (f"إلى {y}" if (y := rolled_to_year(o, ctx.today)) else ""),
             "notes": o.notes,
         }
@@ -477,7 +484,7 @@ def report_materials(orders, ctx, filters_text) -> Report:
                     "ref": f"{o.order_no}/{o.order_year}",
                     "order_type": o.order_type_label,
                     "project_name": o.project_name,
-                    "status": o.status,
+                    "status": compute_status(o, ctx.today),
                     "qty": o.materials[m.id],
                 })
             t = Table(
@@ -502,7 +509,7 @@ def report_materials(orders, ctx, filters_text) -> Report:
 def report_overdue(orders, ctx, filters_text, days: int) -> Report:
     rows = []
     for o in orders:
-        if o.status != Status.SUBMITTED or o.submit_date is None:
+        if compute_status(o, ctx.today) != Status.SUBMITTED or o.submit_date is None:
             continue
         elapsed = (ctx.today - o.submit_date).days
         if elapsed >= days:

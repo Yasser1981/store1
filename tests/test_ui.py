@@ -172,3 +172,18 @@ def test_main_window_pages(app, repo, tmp_path, boxes):
     win.repo.changed = True
     win.close()
     assert list((tmp_path / "backups").glob("auto_*.db"))
+
+
+def test_auto_cancel_shown_and_start_without_head(app, repo, boxes):
+    oid = repo.save_order(make_order(order_no=12, submit_no="1", submit_date=date(2026, 1, 1),
+                                     response="approved", response_no="2", response_date=date(2026, 2, 1)))
+    dlg = od.OrderDialog(repo, repo.get_order(oid), today=date(2027, 1, 5))
+    assert dlg.status_chip.text().startswith("ملغى تلقائياً")
+    dlg.close()
+
+    dlg = od.OrderDialog(repo, repo.get_order(oid), today=TODAY)
+    dlg.start_no.setText("70")
+    dlg.start_date.set_date(date(2026, 3, 1))
+    dlg._save(and_new=False)
+    assert dlg.saved_id == oid, boxes
+    assert repo.get_order(oid).committee_head_id is None

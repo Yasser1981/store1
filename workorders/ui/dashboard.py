@@ -20,11 +20,25 @@ from PySide6.QtWidgets import (
 )
 
 from ..constants import ORDER_TYPES, STATUS_COLORS, STATUS_LABELS
-from ..models import rolled_to_year
+from ..models import compute_status, rolled_to_year
 from ..reports import OrderFilter
 from ..repository import Repository
 from ..validation import allowed_years
 from .widgets import combo_value, make_combo
+
+
+def _wrap(text: str, width: int = 14) -> str:
+    """تقسيم عنوان العمود الطويل إلى عدة أسطر."""
+    lines, current = [], ""
+    for word in text.replace("–", "").split():
+        if current and len(current) + 1 + len(word) > width:
+            lines.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        lines.append(current)
+    return "\n".join(lines)
 
 
 class Card(QFrame):
@@ -120,15 +134,16 @@ class DashboardPage(QWidget):
     def refresh(self, *_):
         year = combo_value(self.year_combo)
         orders = [o for o in self.repo.all_orders() if year is None or o.order_year == year]
+        statuses = {o.id: compute_status(o, self.today) for o in orders}
         counts = {code: 0 for code in STATUS_LABELS}
         for o in orders:
-            counts[o.status] += 1
+            counts[statuses[o.id]] += 1
         self.cards["total"].number.setText(str(len(orders)))
         for code, n in counts.items():
             self.cards[code].number.setText(str(n))
         self.cards["rolled"].number.setText(str(sum(rolled_to_year(o, self.today) is not None for o in orders)))
 
-        headers = ["نوع أمر العمل", "المجموع"] + [v.replace(" – ", "\n") for v in STATUS_LABELS.values()]
+        headers = ["نوع أمر العمل", "المجموع"] + [_wrap(v) for v in STATUS_LABELS.values()]
         self.table.clear()
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
@@ -136,7 +151,7 @@ class DashboardPage(QWidget):
         self.table.setRowCount(len(rows))
         for r, (code, label) in enumerate(rows):
             subset = orders if code is None else [o for o in orders if o.order_type == code]
-            values = [label, len(subset)] + [sum(o.status == s for o in subset) for s in STATUS_LABELS]
+            values = [label, len(subset)] + [sum(statuses[o.id] == s for o in subset) for s in STATUS_LABELS]
             for c, v in enumerate(values):
                 item = QTableWidgetItem(str(v))
                 item.setTextAlignment(Qt.AlignCenter)

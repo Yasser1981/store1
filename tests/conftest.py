@@ -9,10 +9,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from workorders.db import open_database  # noqa: E402
-from workorders.models import WorkOrder  # noqa: E402
+from workorders.models import WorkOrder, set_reference_date  # noqa: E402
 from workorders.repository import Repository  # noqa: E402
 
 TODAY = date(2026, 11, 17)
+set_reference_date(TODAY)  # تثبيت تاريخ اليوم حتى لا تتغير نتائج الاختبارات بتغير السنة
 
 
 @pytest.fixture

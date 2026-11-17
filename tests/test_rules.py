@@ -66,9 +66,14 @@ def test_number_same_year_any_type_conflicts():
 
 
 def test_number_reuse_blocked_while_older_open():
-    old = make_order(id=1, order_no=10, order_year=2025, submit_no="1", submit_date=date(2025, 3, 1))
+    # أمر 10/2025 مباشر به ولم يُغلق (مدوّر إلى 2026): الرقم 10 محجوز في 2026
+    old = started(id=1, order_no=10, order_year=2025, submit_date=date(2025, 2, 1),
+                  response_date=date(2025, 3, 1), start_date=date(2025, 4, 1))
     new = make_order(order_no=10, order_year=2026)
     assert number_conflicts(new, [old])
+    # أمر من سنة سابقة لم يُباشر به: يُلغى تلقائياً ويتحرر رقمه
+    not_started = make_order(id=2, order_no=11, order_year=2025, submit_no="1", submit_date=date(2025, 3, 1))
+    assert not number_conflicts(make_order(order_no=11, order_year=2026), [not_started])
 
 
 def test_number_reuse_allowed_when_older_finished():
@@ -139,9 +144,9 @@ def test_future_dates_rejected():
     assert "submit_date" in fields(validate(o, [], TODAY))
 
 
-def test_start_requires_head_and_approval():
+def test_start_does_not_require_head_but_requires_approval():
     o = started(committee_head_id=None)
-    assert "committee_head" in fields(validate(o, [], TODAY))
+    assert validate(o, [], TODAY) == []
     o = started(response="pending", response_no=None, response_date=None)
     assert "start_no" in fields(validate(o, [], TODAY))
 
@@ -176,3 +181,44 @@ def test_valid_full_order():
 def test_book_numbers_digits_only():
     o = make_order(submit_no="12ت", submit_date=date(2026, 1, 1))
     assert "submit_no" in fields(validate(o, [], TODAY))
+
+
+# ---------------------------------------------------------------- الإلغاء التلقائي
+NEW_YEAR = date(2027, 1, 1)
+
+
+def test_auto_cancel_when_not_started_by_year_end():
+    draft = make_order()
+    submitted = make_order(submit_no="1", submit_date=date(2026, 2, 1))
+    approved = make_order(submit_no="1", submit_date=date(2026, 2, 1), response="approved",
+                          response_no="2", response_date=date(2026, 3, 1))
+    for o in (draft, submitted, approved):
+        assert compute_status(o, date(2026, 12, 31)) != Status.AUTO_CANCELLED
+        assert compute_status(o, NEW_YEAR) == Status.AUTO_CANCELLED
+
+
+def test_auto_cancel_does_not_touch_started_closed_rejected_or_cancelled():
+    assert compute_status(started(), NEW_YEAR) == Status.STARTED
+    assert compute_status(started(close_no="5", close_date=date(2026, 9, 1)), NEW_YEAR) == Status.CLOSED
+    assert compute_status(make_order(submit_no="1", response="rejected"), NEW_YEAR) == Status.REJECTED
+    o = make_order(cancel_no="9", cancel_date=date(2026, 5, 1))
+    assert compute_status(o, NEW_YEAR) == Status.CANCELLED
+
+
+def test_started_order_is_rolled_not_cancelled():
+    o = started()
+    assert compute_status(o, NEW_YEAR) == Status.STARTED
+    assert rolled_to_year(o, NEW_YEAR) == 2027
+
+
+def test_auto_cancelled_number_is_freed():
+    old = make_order(id=1, order_no=10, submit_no="1", submit_date=date(2026, 2, 1))
+    new = make_order(order_no=10, order_year=2027)
+    assert number_conflicts(new, [old], TODAY)  # قبل نهاية السنة: الرقم محجوز
+    assert not number_conflicts(new, [old], NEW_YEAR)  # بعد حلول السنة الجديدة: الرقم متحرر
+
+
+def test_start_date_must_be_within_order_year():
+    o = started(start_date=date(2027, 2, 15))
+    assert "start_date" in fields(validate(o, [], date(2027, 3, 1)))
+    assert "start_date" not in fields(validate(started(), [], date(2027, 3, 1)))
