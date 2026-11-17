@@ -1,0 +1,14 @@
+# بيانات الدائرة لا تُرفع أبداً إلى المستودع
+data/
+backups/
+*.db
+*.db-journal
+*.lock
+
+# ملفات البناء والتشغيل المؤقتة
+build/
+dist/
+__pycache__/
+*.pyc
+.pytest_cache/
+selftest*.txt

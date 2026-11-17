@@ -1,0 +1,61 @@
+# بناء ملف exe للويندوز تلقائياً عند كل رفع للكود (Push)
+# الناتج يظهر في صفحة Actions ← اختر آخر تشغيل ← قسم Artifacts ← WorkOrders-Planning-v...
+name: Build Windows EXE
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build EXE
+        run: pyinstaller --noconfirm WorkOrders.spec
+
+      - name: Self-test the built EXE
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP "selftest.txt"
+          $p = Start-Process -FilePath "dist\WorkOrders\WorkOrders.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
+          if (-not (Test-Path $out)) { Write-Error "selftest output missing (exit code $($p.ExitCode))"; exit 1 }
+          Get-Content $out
+          if (-not (Select-String -Path $out -Pattern "^OK$" -Quiet)) { Write-Error "selftest failed"; exit 1 }
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = python -c "import workorders; print(workorders.__version__)"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Copy-Item "dist_files\README.txt" "dist\WorkOrders\README.txt"
+          Copy-Item "CHANGELOG.md" "dist\WorkOrders\CHANGELOG.md"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WorkOrders-Planning-v${{ env.VERSION }}
+          path: dist/
+          retention-days: 90
