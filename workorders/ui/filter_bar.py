@@ -24,7 +24,8 @@ def _with_all(options, all_label=ALL):
 class FilterBar(QWidget):
     changed = Signal()
 
-    def __init__(self, repo: Repository, today: date, columns: int = 4, show_search: bool = True, parent=None):
+    def __init__(self, repo: Repository, today: date, columns: int = 4, show_search: bool = True,
+                 show_group: bool = False, parent=None):
         super().__init__(parent)
         self.repo = repo
         self.today = today
@@ -40,6 +41,9 @@ class FilterBar(QWidget):
         self.sector = make_combo([])
         self.status = make_combo(_with_all(STATUS_FILTERS, "كل الحالات"))
         self.head = make_combo([])
+        self.show_group = show_group
+        self.group = make_combo([])
+        self.group.setToolTip("مجموعات أوامر العمل المحفوظة من شاشة أوامر العمل")
         self.rolled = QCheckBox("المدوّرة فقط")
         self.early = QCheckBox("⚠ المباشرة قبل الموافقة فقط")
         self.early.setToolTip("أوامر العمل التي تاريخ مباشرتها يسبق تاريخ كتاب الموافقة (حالات استثنائية للمراجعة)")
@@ -54,6 +58,10 @@ class FilterBar(QWidget):
             ("الجهد", self.voltage), ("القطاع", self.sector), ("الحالة", self.status),
             ("رئيس اللجنة", self.head),
         ]
+        if show_group:
+            pairs.insert(0, ("المجموعة", self.group))
+        else:
+            self.group.hide()
         for i, (label, widget) in enumerate(pairs):
             row, col = divmod(i, columns)
             grid.addWidget(QLabel(label), row, col * 2)
@@ -81,7 +89,7 @@ class FilterBar(QWidget):
         self._timer.setSingleShot(True)
         self._timer.setInterval(250)
         self._timer.timeout.connect(self.changed)
-        for combo in (self.year, self.order_type, self.work_type, self.voltage, self.sector, self.status, self.head):
+        for combo in self._combos():
             combo.currentIndexChanged.connect(self._on_change)
         self.rolled.toggled.connect(self._on_change)
         self.early.toggled.connect(self._on_change)
@@ -89,12 +97,22 @@ class FilterBar(QWidget):
         self.clear_btn.clicked.connect(self.reset)
         self.reset(emit=False)
 
+    def _combos(self):
+        return (self.year, self.order_type, self.work_type, self.voltage, self.sector, self.status, self.head,
+                self.group)
+
     def _on_change(self, *_):
         self.changed.emit()
 
     def reload_lookups(self):
         sector = combo_value(self.sector)
         head = combo_value(self.head)
+        group = combo_value(self.group)
+        fill_combo(self.group, [(None, "بدون (كل أوامر العمل)")] +
+                   [(g.id, f"{g.name} ({g.count})") for g in self.repo.groups()])
+        set_combo_value(self.group, group)
+        if self.group.currentIndex() < 0:
+            self.group.setCurrentIndex(0)
         fill_combo(self.sector, _with_all([(s.id, s.name) for s in self.repo.sectors(include_inactive=True)]))
         fill_combo(self.head, _with_all([(h.id, h.name) for h in self.repo.committee_heads(include_inactive=True)]))
         set_combo_value(self.sector, sector)
@@ -105,8 +123,7 @@ class FilterBar(QWidget):
             self.head.setCurrentIndex(0)
 
     def reset(self, emit=True):
-        widgets = (self.year, self.order_type, self.work_type, self.voltage, self.sector, self.status, self.head)
-        for combo in widgets:
+        for combo in self._combos():
             combo.blockSignals(True)
             combo.setCurrentIndex(0)
             combo.blockSignals(False)
@@ -130,7 +147,7 @@ class FilterBar(QWidget):
         set_combo_value(self.sector, f.sector_id)
         set_combo_value(self.status, f.status)
         set_combo_value(self.head, f.committee_head_id)
-        for combo in (self.year, self.order_type, self.work_type, self.voltage, self.sector, self.status, self.head):
+        for combo in self._combos():
             if combo.currentIndex() < 0:
                 combo.setCurrentIndex(0)
         self.rolled.setChecked(f.rolled_only)
@@ -140,7 +157,14 @@ class FilterBar(QWidget):
         self.changed.emit()
 
     def current(self) -> OrderFilter:
+        group_id = combo_value(self.group) if self.show_group else None
+        order_ids, group_name = None, ""
+        if group_id is not None:
+            order_ids = frozenset(self.repo.group_members(group_id))
+            group_name = next((g.name for g in self.repo.groups() if g.id == group_id), "")
         return OrderFilter(
+            order_ids=order_ids,
+            group_name=group_name,
             year=combo_value(self.year),
             order_type=combo_value(self.order_type),
             work_type=combo_value(self.work_type),

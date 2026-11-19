@@ -56,6 +56,11 @@ def print_preview(report: Report, font_family: str, parent=None) -> None:
     dialog.exec()
 
 
+def show_in_browser(browser, report: Report, font_family: str) -> None:
+    """عرض التقرير في نافذة المعاينة. التقارير العريضة بخط أصغر قليلاً حتى لا تنضغط أعمدتها."""
+    browser.setHtml(report_to_html(report, font_family, base_pt=8.5 if report.landscape else 10))
+
+
 def safe_filename(text: str) -> str:
     name = re.sub(r'[\\/:*?"<>|]+', " ", text).strip()
     return name[:80] or "تقرير"

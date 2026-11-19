@@ -60,7 +60,7 @@ def _html_table(table: Table) -> str:
                 fg, bg = STATUS_COLORS[value]
                 cells.append(f'<td align="center" style="color:{fg}; background-color:{bg};">{text}</td>')
             elif c.kind in ("int", "money", "date"):
-                cells.append(f'<td align="center">{text}</td>')
+                cells.append(f'<td align="center" style="white-space:nowrap;">{text}</td>')
             else:
                 cells.append(f"<td>{text}</td>")
         out.append("<tr>" + "".join(cells) + "</tr>")
@@ -69,7 +69,7 @@ def _html_table(table: Table) -> str:
         for c in cols:
             value = table.total_row.get(c.key)
             text = escape(format_cell(c, value) if c.total else (value or ""))
-            cells.append(f'<td align="center" class="total">{text}</td>')
+            cells.append(f'<td align="center" class="total" style="white-space:nowrap;">{text}</td>')
         out.append('<tr class="total">' + "".join(cells) + "</tr>")
     out.append("</tbody></table>")
     return "\n".join(out)

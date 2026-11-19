@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 
 from PySide6.QtCore import QLocale, Qt, QTimer
 from PySide6.QtWidgets import (
-    QFileDialog,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -21,12 +19,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..export import report_to_html, report_to_xlsx
 from ..reports import GROUP_BY, GROUPED_REPORTS, REPORT_TYPES, Report, ReportContext, build_report
 from ..repository import Repository
-from . import messages
 from .filter_bar import FilterBar
-from .printing import print_preview, safe_filename, save_pdf
+from .printing import print_preview, show_in_browser
+from .report_actions import save_report_excel, save_report_pdf
 from .widgets import combo_value, make_combo
 
 
@@ -91,7 +88,7 @@ class ReportsPage(QWidget):
 
         box2 = QGroupBox("2. حدد أوامر العمل المشمولة (اختياري)")
         b2 = QVBoxLayout(box2)
-        self.filters = FilterBar(repo, today, columns=1, show_search=False)
+        self.filters = FilterBar(repo, today, columns=1, show_search=False, show_group=True)
         b2.addWidget(self.filters)
         side_lay.addWidget(box2)
         side_lay.addStretch(1)
@@ -147,43 +144,17 @@ class ReportsPage(QWidget):
         self.report = build_report(
             kind, self.repo.all_orders(), ctx, self.filters.current(),
             group_by=combo_value(self.group_combo) or "order_type", overdue_days=self.days_spin.value())
-        self.preview.setHtml(report_to_html(self.report, self.font_family, base_pt=10))
+        show_in_browser(self.preview, self.report, self.font_family)
 
     # ------------------------------------------------------------------
-    def _default_path(self, ext: str) -> str:
-        name = f"{safe_filename(self.report.title)} {self.today.isoformat()}.{ext}"
-        return str(Path.home() / name)
-
     def _print(self):
         if self.report:
             print_preview(self.report, self.font_family, self)
 
     def _pdf(self):
-        if not self.report:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "حفظ PDF", self._default_path("pdf"), "PDF (*.pdf)")
-        if not path:
-            return
-        if not path.lower().endswith(".pdf"):
-            path += ".pdf"
-        try:
-            save_pdf(self.report, Path(path), self.font_family)
-        except OSError as exc:
-            messages.critical(self, "خطأ", f"تعذر حفظ الملف.\n\n{exc}")
-            return
-        messages.information(self, "تم", f"تم حفظ الملف:\n{path}")
+        if self.report:
+            save_report_pdf(self, self.report, self.font_family, self.today)
 
     def _excel(self):
-        if not self.report:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "حفظ ملف Excel", self._default_path("xlsx"), "Excel (*.xlsx)")
-        if not path:
-            return
-        if not path.lower().endswith(".xlsx"):
-            path += ".xlsx"
-        try:
-            report_to_xlsx(self.report, Path(path))
-        except OSError as exc:
-            messages.critical(self, "خطأ", f"تعذر حفظ الملف. قد يكون مفتوحاً في Excel.\n\n{exc}")
-            return
-        messages.information(self, "تم", f"تم حفظ الملف:\n{path}")
+        if self.report:
+            save_report_excel(self, self.report, self.today)

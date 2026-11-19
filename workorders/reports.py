@@ -42,6 +42,9 @@ class OrderFilter:
     rolled_only: bool = False
     early_start_only: bool = False  # المباشرة قبل الموافقة (للمراجعة)
     text: str = ""
+    # مجموعة أوامر مختارة: أرقام أوامر العمل (None = الكل) واسم المجموعة للعرض
+    order_ids: frozenset | None = None
+    group_name: str = ""
 
     def is_empty(self) -> bool:
         return self == OrderFilter()
@@ -76,6 +79,8 @@ def _text_matches(o: WorkOrder, text: str) -> bool:
 def apply_filter(orders: list[WorkOrder], f: OrderFilter, today: date) -> list[WorkOrder]:
     result = []
     for o in orders:
+        if f.order_ids is not None and o.id not in f.order_ids:
+            continue
         if f.year is not None and o.order_year != f.year:
             continue
         if f.order_type and o.order_type != f.order_type:
@@ -118,6 +123,8 @@ class ReportContext:
 
 def describe_filter(f: OrderFilter, ctx: ReportContext) -> str:
     parts = []
+    if f.order_ids is not None:
+        parts.append(f"المجموعة: {f.group_name}" if f.group_name else f"أوامر عمل مختارة ({len(f.order_ids)})")
     if f.year is not None:
         parts.append(f"السنة: {f.year}")
     if f.order_type:
@@ -250,6 +257,7 @@ REPORT_TYPES = {
     "money": "المبالغ المخصصة (أجور العمل وشراء المواد)",
     "materials": "المواد الحاكمة (الكميات الإجمالية)",
     "overdue": "المتأخرة: مرفوعة ولم ترد موافقتها منذ مدة",
+    "group": "كلف ومواد مجموعة أوامر عمل (اختر المجموعة من الفلاتر)",
 }
 
 # التقارير التي تحتاج اختيار (حسب ...)
@@ -552,6 +560,87 @@ def report_overdue(orders, ctx, filters_text, days: int) -> Report:
                   filters_text, [table], [f"العدد: {len(rows)}"])
 
 
+def report_group(orders, ctx, filters_text, title_name: str = "") -> Report:
+    """كلف (مبالغ التخصيص) ومواد مجموعة أوامر عمل مختارة: المجموع والتفصيل."""
+    ordered = sorted(orders, key=lambda o: (o.order_year, o.order_no))
+    # 1) الكلف
+    cost_rows = []
+    for i, o in enumerate(ordered, start=1):
+        labor, mats = o.labor_alloc, o.materials_alloc
+        total = (labor or 0) + (mats or 0) if (labor is not None or mats is not None) else None
+        cost_rows.append({
+            "seq": i, "ref": f"{o.order_no}/{o.order_year}", "order_type": o.order_type_label,
+            "project_name": o.project_name, "work": o.work_description,
+            "status": compute_status(o, ctx.today),
+            "labor": labor, "materials": mats, "total": total,
+        })
+    costs = Table(
+        title="الكلف (مبالغ التخصيص الواردة بكتب الموافقة)",
+        columns=[
+            Column("seq", "ت", "int", width=6, pct=4),
+            Column("ref", "أمر العمل", width=12, pct=7),
+            Column("order_type", "نوع الأمر", width=12, pct=8),
+            Column("project_name", "اسم المشروع", width=40, pct=25),
+            Column("work", "نوع العمل", width=26, pct=14),
+            Column("status", "الحالة", "status", width=22, pct=12),
+            Column("labor", "تخصيص أجور العمل", "money", total=True, width=18, pct=10),
+            Column("materials", "تخصيص شراء المواد", "money", total=True, width=18, pct=10),
+            Column("total", "المجموع", "money", total=True, width=18, pct=10),
+        ],
+        rows=cost_rows,
+        empty_text="لا توجد أوامر عمل في المجموعة.",
+    )
+    costs.compute_totals("project_name")
+
+    # 2) مجموع المواد
+    used = [m for m in ctx.materials if any(m.id in o.effective_materials for o in ordered)]
+    totals_rows = []
+    for i, m in enumerate(used, start=1):
+        using = [o for o in ordered if m.id in o.effective_materials]
+        totals_rows.append({"seq": i, "name": m.name, "unit": m.unit, "orders": len(using),
+                            "qty": sum(o.effective_materials[m.id] for o in using)})
+    mat_totals = Table(
+        title="مجموع المواد الحاكمة",
+        columns=[
+            Column("seq", "ت", "int", width=6, pct=5),
+            Column("name", "المادة", width=36, pct=45),
+            Column("unit", "الوحدة", width=10, pct=12),
+            Column("orders", "عدد أوامر العمل", "int", width=14, pct=18),
+            Column("qty", "الكمية الإجمالية", "int", width=18, pct=20),
+        ],
+        rows=totals_rows,
+        empty_text="لا توجد مواد حاكمة مسجلة لأوامر العمل هذه.",
+    )
+
+    # 3) تفصيل المواد لكل أمر عمل
+    tables = [costs, mat_totals]
+    with_materials = [o for o in ordered if o.effective_materials]
+    if used and with_materials:
+        share = max(4, int(66 / len(used)))
+        detail_cols = [
+            Column("ref", "أمر العمل", width=12, pct=8),
+            Column("project_name", "اسم المشروع", width=40, pct=26),
+        ] + [Column(f"mat_{m.id}", f"{m.name} ({m.unit})", "int", total=True, width=16, pct=share) for m in used]
+        detail_rows = []
+        for o in with_materials:
+            row = {"ref": f"{o.order_no}/{o.order_year}", "project_name": o.project_name}
+            for m in used:
+                row[f"mat_{m.id}"] = o.effective_materials.get(m.id)
+            detail_rows.append(row)
+        detail = Table(title="تفصيل المواد الحاكمة لكل أمر عمل", columns=detail_cols, rows=detail_rows)
+        detail.compute_totals("project_name")
+        tables.append(detail)
+
+    title = f"كلف ومواد مجموعة أوامر العمل: {title_name}" if title_name else "كلف ومواد أوامر العمل المختارة"
+    notes = [
+        f"عدد أوامر العمل: {len(ordered)}",
+        "الكلف هي مبالغ التخصيص الواردة بكتب الموافقة (أجور العمل + شراء المواد غير المتوفرة)؛ "
+        "الأمر الذي لم ترد موافقته لا يتضمن مبالغ.",
+        "المواد الحاكمة تخص أوامر عمل الشبكة الكهربائية فقط. القابلوات والأسلاك بالمتر، والأعمدة والمحولات بالعدد.",
+    ]
+    return Report(title, filters_text, tables, notes, landscape=True)
+
+
 def build_report(kind: str, orders: list[WorkOrder], ctx: ReportContext, f: OrderFilter,
                  group_by: str = "order_type", overdue_days: int = 30) -> Report:
     filtered = apply_filter(orders, f, ctx.today)
@@ -568,4 +657,6 @@ def build_report(kind: str, orders: list[WorkOrder], ctx: ReportContext, f: Orde
         return report_materials(filtered, ctx, filters_text)
     if kind == "overdue":
         return report_overdue(filtered, ctx, filters_text, overdue_days)
+    if kind == "group":
+        return report_group(filtered, ctx, filters_text, f.group_name)
     raise ValueError(kind)

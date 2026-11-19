@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import dataclass
 
 from .db import now_text, transaction
 from .models import LookupItem, WorkOrder
 from .textutil import clean_spaces, from_iso, normalize_for_compare, to_iso
+
+
+@dataclass
+class OrderGroup:
+    id: int
+    name: str
+    count: int
 
 
 class LookupError_(Exception):
@@ -238,4 +246,64 @@ class Repository:
     def delete_order(self, order_id: int) -> None:
         with transaction(self.conn):
             self.conn.execute("DELETE FROM work_orders WHERE id=?", (order_id,))
+        self.changed = True
+
+    # ==================================================================
+    # مجموعات أوامر العمل المختارة (محفوظة بأسماء)
+    # ==================================================================
+    def groups(self) -> list[OrderGroup]:
+        rows = self.conn.execute("""
+            SELECT g.id, g.name, count(i.work_order_id) AS n
+            FROM order_groups g LEFT JOIN order_group_items i ON i.group_id = g.id
+            GROUP BY g.id ORDER BY g.name COLLATE NOCASE""").fetchall()
+        return [OrderGroup(r["id"], r["name"], r["n"]) for r in rows]
+
+    def group_members(self, group_id: int) -> set[int]:
+        rows = self.conn.execute("SELECT work_order_id FROM order_group_items WHERE group_id=?", (group_id,))
+        return {r[0] for r in rows}
+
+    def _check_group_name(self, name: str, exclude_id: int | None = None) -> str:
+        name = clean_spaces(name)
+        if not name:
+            raise LookupError_("اكتب اسماً للمجموعة.")
+        key = normalize_for_compare(name)
+        for g in self.groups():
+            if g.id != exclude_id and normalize_for_compare(g.name) == key:
+                raise LookupError_(f"توجد مجموعة بنفس الاسم «{g.name}». اختر اسماً آخر.")
+        return name
+
+    def create_group(self, name: str, order_ids) -> int:
+        name = self._check_group_name(name)
+        stamp = now_text()
+        with transaction(self.conn):
+            cur = self.conn.execute(
+                "INSERT INTO order_groups(name, created_at, updated_at) VALUES (?, ?, ?)", (name, stamp, stamp))
+            group_id = cur.lastrowid
+            self._write_group_items(group_id, order_ids)
+        self.changed = True
+        return group_id
+
+    def update_group_members(self, group_id: int, order_ids) -> None:
+        with transaction(self.conn):
+            self.conn.execute("DELETE FROM order_group_items WHERE group_id=?", (group_id,))
+            self._write_group_items(group_id, order_ids)
+            self.conn.execute("UPDATE order_groups SET updated_at=? WHERE id=?", (now_text(), group_id))
+        self.changed = True
+
+    def _write_group_items(self, group_id: int, order_ids) -> None:
+        for oid in sorted(set(order_ids)):
+            self.conn.execute(
+                "INSERT INTO order_group_items(group_id, work_order_id) VALUES (?, ?)", (group_id, oid))
+
+    def rename_group(self, group_id: int, name: str) -> None:
+        name = self._check_group_name(name, exclude_id=group_id)
+        with transaction(self.conn):
+            self.conn.execute("UPDATE order_groups SET name=?, updated_at=? WHERE id=?",
+                              (name, now_text(), group_id))
+        self.changed = True
+
+    def delete_group(self, group_id: int) -> None:
+        """حذف المجموعة فقط (أوامر العمل نفسها لا تُحذف)."""
+        with transaction(self.conn):
+            self.conn.execute("DELETE FROM order_groups WHERE id=?", (group_id,))
         self.changed = True

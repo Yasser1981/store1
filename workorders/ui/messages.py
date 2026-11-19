@@ -43,3 +43,39 @@ def information(parent, title, text, buttons=QMessageBox.Ok, default=None):
 
 def critical(parent, title, text, buttons=QMessageBox.Ok, default=None):
     return _show(QMessageBox.Critical, parent, title, text, buttons, default)
+
+
+def ask_text(parent, title: str, label: str, text: str = "") -> str | None:
+    """طلب نص من المستخدم (مثل اسم مجموعة) بأزرار عربية. يرجع None عند الإلغاء."""
+    from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QLineEdit, QVBoxLayout
+
+    dialog = QDialog(parent)
+    dialog.setWindowTitle(title)
+    dialog.setLayoutDirection(Qt.RightToLeft)
+    dialog.setMinimumWidth(460)
+    lay = QVBoxLayout(dialog)
+    lay.addWidget(QLabel(label))
+    edit = QLineEdit(text)
+    edit.setMaxLength(150)
+    lay.addWidget(edit)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+    buttons.button(QDialogButtonBox.Ok).setText("حفظ")
+    buttons.button(QDialogButtonBox.Cancel).setText("إلغاء الأمر")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    lay.addWidget(buttons)
+    if dialog.exec() != QDialog.Accepted:
+        return None
+    return edit.text()
+
+
+def choose(parent, title: str, text: str, options: list[str]) -> int | None:
+    """رسالة بعدة أزرار مخصصة. يرجع رقم الزر المختار أو None عند الإلغاء."""
+    box = QMessageBox(QMessageBox.Question, title, text, QMessageBox.NoButton, parent)
+    box.setLayoutDirection(Qt.RightToLeft)
+    buttons = [box.addButton(label, QMessageBox.AcceptRole) for label in options]
+    cancel = box.addButton("إلغاء الأمر", QMessageBox.RejectRole)
+    box.setDefaultButton(cancel)
+    box.exec()
+    clicked = box.clickedButton()
+    return buttons.index(clicked) if clicked in buttons else None

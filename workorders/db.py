@@ -16,7 +16,7 @@ from pathlib import Path
 from . import __version__
 from .constants import APP_ID, DEFAULT_MATERIALS, DEFAULT_SECTORS
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 class DatabaseError(Exception):
@@ -167,9 +167,25 @@ def _migration_2(conn: sqlite3.Connection) -> None:
     conn.execute("UPDATE work_orders SET actual_start_date = start_date WHERE start_date IS NOT NULL")
 
 
+def _migration_3(conn: sqlite3.Connection) -> None:
+    """الإصدار 1.2.0: مجموعات أوامر العمل المختارة المحفوظة بأسماء."""
+    conn.execute("""CREATE TABLE order_groups (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )""")
+    conn.execute("""CREATE TABLE order_group_items (
+        group_id      INTEGER NOT NULL REFERENCES order_groups(id) ON DELETE CASCADE,
+        work_order_id INTEGER NOT NULL REFERENCES work_orders(id) ON DELETE CASCADE,
+        PRIMARY KEY (group_id, work_order_id)
+    )""")
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
+    3: _migration_3,
 }
 
 

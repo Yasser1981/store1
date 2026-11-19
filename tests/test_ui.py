@@ -7,6 +7,7 @@ from conftest import TODAY, make_order
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
 
 from workorders.paths import AppPaths  # noqa: E402
@@ -255,3 +256,49 @@ def test_arabic_message_buttons(app, monkeypatch):
     assert messages.question(None, "ع", "نص") == QMessageBox.Yes
     messages.information(None, "ع", "نص")
     assert captured == [sorted(["نعم", "لا"]), ["حسناً"]]
+
+
+def test_orders_page_check_calculate_and_groups(app, repo, tmp_path, monkeypatch, boxes):
+    from workorders.ui import report_actions
+    from workorders.ui.orders_page import COL_CHECK, OrdersPage
+
+    ids = [repo.save_order(make_order(order_no=n, labor_alloc=None)) for n in (1, 2, 3)]
+    page = OrdersPage(repo, TODAY, tmp_path, "DejaVu Sans")
+    page.refresh()
+    assert not page.calc_btn.isEnabled()
+    # تأشير أمرين من الجدول
+    for r in range(page.table.rowCount()):
+        item = page.table.item(r, COL_CHECK)
+        if item.data(Qt.UserRole) in ids[:2]:
+            item.setCheckState(Qt.Checked)
+    assert page.checked == set(ids[:2]) and page.calc_btn.isEnabled()
+
+    shown = []
+    monkeypatch.setattr(report_actions.ReportDialog, "exec", lambda self: shown.append(self.report) or 0)
+    page._calculate()
+    assert shown and len(shown[0].tables[0].rows) == 2
+
+    # حفظ كمجموعة جديدة
+    monkeypatch.setattr(messages, "ask_text", lambda *a, **k: "خطة 2027")
+    page._save_group()
+    groups = repo.groups()
+    assert [(g.name, g.count) for g in groups] == [("خطة 2027", 2)]
+    assert page.current_group_id() == groups[0].id
+
+    # تفريغ التأشير ثم فتح المجموعة من القائمة
+    page._uncheck_all()
+    assert page.checked == set()
+    page.group_combo.setCurrentIndex(0)
+    page.group_combo.setCurrentIndex(1)
+    assert page.checked == set(ids[:2]) and page.show_checked.isChecked()
+    assert page.table.rowCount() == 2
+
+    # تحديث المجموعة بإضافة الأمر الثالث
+    page.checked.add(ids[2])
+    monkeypatch.setattr(messages, "choose", lambda *a, **k: 0)
+    page._save_group()
+    assert repo.groups()[0].count == 3
+
+    # حذف المجموعة
+    page._delete_group()
+    assert repo.groups() == [] and repo.order_count() == 3

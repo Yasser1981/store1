@@ -164,3 +164,41 @@ def test_upgrade_from_schema_1_keeps_data(tmp_path):
     assert o.project_name == "مشروع قديم"
     assert o.actual_start_date == date(2026, 3, 1)  # أخذ قيمته من تاريخ الأمر الإداري
     conn.close()
+
+
+def test_groups_crud_and_cascade(repo):
+    a = repo.save_order(make_order(order_no=1))
+    b = repo.save_order(make_order(order_no=2))
+    c = repo.save_order(make_order(order_no=3))
+    gid = repo.create_group("مشاريع خطة 2027", [a, b])
+    assert repo.group_members(gid) == {a, b}
+    assert [(g.name, g.count) for g in repo.groups()] == [("مشاريع خطة 2027", 2)]
+    with pytest.raises(LookupError_):
+        repo.create_group("مشاريع  خطة 2027", [c])  # نفس الاسم بفراغات مختلفة
+    with pytest.raises(LookupError_):
+        repo.create_group("   ", [c])
+    repo.update_group_members(gid, [b, c])
+    assert repo.group_members(gid) == {b, c}
+    repo.rename_group(gid, "مشاريع مختارة")
+    assert repo.groups()[0].name == "مشاريع مختارة"
+    repo.delete_order(c)  # حذف أمر عمل يزيله من المجموعة
+    assert repo.group_members(gid) == {b}
+    repo.delete_group(gid)  # حذف المجموعة لا يحذف أوامر العمل
+    assert repo.groups() == [] and repo.order_count() == 2
+
+
+def test_upgrade_from_schema_2_adds_groups(tmp_path):
+    from workorders import db as dbmod
+
+    path = tmp_path / "v2.db"
+    conn = dbmod.connect(path)
+    for version in (1, 2):
+        with dbmod.transaction(conn):
+            dbmod.MIGRATIONS[version](conn)
+            conn.execute(f"PRAGMA user_version = {version}")
+    conn.close()
+    calls = []
+    conn = open_database(path, backup_before_upgrade=calls.append)
+    assert calls == [2]
+    assert Repository(conn).groups() == []
+    conn.close()

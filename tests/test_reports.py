@@ -142,3 +142,30 @@ def test_early_start_filter(repo):
     assert [x.order_no for x in found] == [4]
     rep = build_report("detail", repo.all_orders(), ctx, OrderFilter(early_start_only=True))
     assert "المباشرة قبل تاريخ الموافقة" in rep.filters_text
+
+
+def test_group_report_costs_and_materials(repo):
+    ctx = seed(repo)
+    by_no = {o.order_no: o for o in repo.all_orders()}
+    gid = repo.create_group("مجموعة اختبار", [by_no[3].id, by_no[4].id, by_no[2].id])
+    f = OrderFilter(order_ids=frozenset(repo.group_members(gid)), group_name="مجموعة اختبار")
+    rep = build_report("group", repo.all_orders(), ctx, f)
+    assert "مجموعة اختبار" in rep.title and "المجموعة: مجموعة اختبار" in rep.filters_text
+    costs = rep.tables[0]
+    assert [r["ref"] for r in costs.rows] == ["2/2026", "3/2026", "4/2026"]
+    assert costs.total_row["labor"] == 3_000_000 and costs.total_row["materials"] == 500_000
+    assert costs.total_row["total"] == 3_500_000
+    assert costs.rows[0]["total"] is None  # أمر لم ترد موافقته: بدون مبالغ
+    totals = {r["name"]: r["qty"] for r in rep.tables[1].rows}
+    assert totals == {ctx.materials[0].name: 100, ctx.materials[13].name: 300}  # أمر 4 ليس شبكة: تُهمل مواده
+    detail = rep.tables[2]
+    assert [r["ref"] for r in detail.rows] == ["3/2026"]
+    html = report_to_html(rep)
+    assert "تفصيل المواد الحاكمة لكل أمر عمل" in html
+
+
+def test_order_ids_filter(repo):
+    seed(repo)
+    ids = frozenset(o.id for o in repo.all_orders() if o.order_no in (1, 5))
+    got = apply_filter(repo.all_orders(), OrderFilter(order_ids=ids), TODAY)
+    assert sorted(o.order_no for o in got) == [1, 5]

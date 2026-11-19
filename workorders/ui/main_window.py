@@ -67,7 +67,7 @@ class MainWindow(QMainWindow):
 
         self.stack = QStackedWidget()
         self.dashboard = DashboardPage(repo, self.today)
-        self.orders = OrdersPage(repo, self.today, paths.backups_dir)
+        self.orders = OrdersPage(repo, self.today, paths.backups_dir, font_family)
         self.reports = ReportsPage(repo, self.today, font_family)
         self.settings = SettingsPage(repo, paths)
         pages = [
