@@ -258,7 +258,8 @@ class OrderDialog(QDialog):
         g.addWidget(self.response_date_lbl, 2, 2)
         g.addWidget(self.response_date, 2, 3)
         self.approval_costs_hint = QLabel(
-            "إذا تضمنت الموافقة تعديلاً في أجور العمل أو كلفة المواد غير المتوفرة، عدّل المبالغ في قسم (الكلف).")
+            "إذا تضمنت الموافقة تعديلاً في أجور العمل أو كلفة المواد غير المتوفرة، عدّل المبالغ في قسم (الكلف)؛ "
+            "وتتعدّل الكلفة الكلية للمواد تلقائياً.")
         self.approval_costs_hint.setObjectName("hint")
         self.approval_costs_hint.setWordWrap(True)
         g.addWidget(self.approval_costs_hint, 3, 0, 1, 4)
@@ -270,7 +271,9 @@ class OrderDialog(QDialog):
 
     def _build_costs(self):
         box, g = self._section("2. الكلف (بالدينار العراقي)")
-        hint = QLabel("تُدخل المبالغ المطلوبة عند إعداد أمر العمل، وتُعدَّل لاحقاً إذا جاءت الموافقة بمبالغ مختلفة.")
+        hint = QLabel("تُدخل المبالغ المرفوعة عند إعداد أمر العمل. إذا جاءت الموافقة بتعديل في أجور العمل أو كلفة "
+                      "المواد غير المتوفرة، اختر (تمت الموافقة) ثم عدّل المبلغ هنا، فتتعدّل الكلفة الكلية للمواد "
+                      "تلقائياً (قيمة المواد المتوفرة تبقى ثابتة).")
         hint.setObjectName("hint")
         hint.setWordWrap(True)
         g.addWidget(hint, 0, 0, 1, 4)
@@ -290,10 +293,53 @@ class OrderDialog(QDialog):
         g.addWidget(self.total_materials_edit, 2, 1)
         g.addWidget(self._label("الكلفة الكلية التخمينية\nللمشروع (تلقائياً)"), 2, 2)
         g.addWidget(self.estimated_label, 2, 3)
+        self.available_label = QLabel()
+        self.available_label.setObjectName("hint")
+        g.addWidget(self.available_label, 3, 0, 1, 4)
+        self.auto_adjust_label = QLabel()
+        self.auto_adjust_label.setWordWrap(True)
+        self.auto_adjust_label.setStyleSheet(
+            "color:#0d47a1; background:#e3f2fd; border:1px solid #90caf9; border-radius:5px; padding:6px;")
+        self.auto_adjust_label.hide()
+        g.addWidget(self.auto_adjust_label, 4, 0, 1, 4)
+        # قيمة المواد المتوفرة = الكلية − غير المتوفرة (تبقى ثابتة عند تعديل غير المتوفرة بعد الموافقة)
+        self._available: int | None = None
+        self._total_before_adjust: int | None = None
+        self.total_materials_edit.edit.textEdited.connect(self._on_total_materials_edited)
+        self.materials_alloc_edit.edit.textEdited.connect(self._on_unavailable_edited)
         self.fields.update(labor_alloc=self.labor_edit.edit, materials_alloc=self.materials_alloc_edit.edit,
                            total_materials_cost=self.total_materials_edit.edit)
         for w in (self.labor_edit, self.materials_alloc_edit, self.total_materials_edit):
             w.textChanged.connect(self._refresh)
+
+    def _recalc_available(self):
+        total = self.total_materials_edit.value()
+        self._available = None if total is None else total - (self.materials_alloc_edit.value() or 0)
+
+    def _on_total_materials_edited(self, *_):
+        self._recalc_available()
+        self._total_before_adjust = None
+        self.auto_adjust_label.hide()
+
+    def _on_unavailable_edited(self, *_):
+        approved = (combo_value(self.response_combo) or "pending") == "approved"
+        if not approved or self._available is None:
+            self._recalc_available()
+            return
+        # بعد الموافقة: تعديل كلفة غير المتوفرة يعدّل الكلفة الكلية للمواد بنفس الفرق
+        old_total = self.total_materials_edit.value()
+        if self._total_before_adjust is None:
+            self._total_before_adjust = old_total
+        new_total = self._available + (self.materials_alloc_edit.value() or 0)
+        if new_total != old_total:
+            self.total_materials_edit.set_value(new_total)
+        if new_total != self._total_before_adjust:
+            self.auto_adjust_label.setText(
+                f"⟲ عُدّلت الكلفة الكلية للمواد تلقائياً من {self._total_before_adjust:,} إلى {new_total:,} دينار، "
+                f"لتبقى قيمة المواد المتوفرة ثابتة ({self._available:,} دينار).")
+            self.auto_adjust_label.show()
+        else:
+            self.auto_adjust_label.hide()
 
     def _build_materials(self):
         box, g = self._section("4. المواد الحاكمة الداخلة في المشروع (اترك الحقل فارغاً إذا لم تدخل المادة)")
@@ -454,6 +500,7 @@ class OrderDialog(QDialog):
         self.labor_edit.set_value(o.labor_alloc)
         self.materials_alloc_edit.set_value(o.materials_alloc)
         self.total_materials_edit.set_value(o.total_materials_cost)
+        self._recalc_available()
 
         for mid, edit in self.material_edits.items():
             edit.set_value(o.materials.get(mid))
@@ -587,6 +634,12 @@ class OrderDialog(QDialog):
         self.response_no_lbl.setText(f"رقم كتاب {word}")
         self.response_date_lbl.setText(f"تاريخ كتاب {word}")
         self.approval_costs_hint.setVisible(response == "approved")
+        total_materials = o.total_materials_cost
+        if total_materials is not None:
+            available = total_materials - (o.materials_alloc or 0)
+            self.available_label.setText(f"قيمة المواد المتوفرة (محسوبة = الكلية − غير المتوفرة): {available:,} دينار")
+        else:
+            self.available_label.setText("")
         estimate = o.estimated_total
         self.estimated_label.setText(f"{estimate:,} دينار" if estimate is not None
                                      else "— (أدخل الكلفة الكلية للمواد)")

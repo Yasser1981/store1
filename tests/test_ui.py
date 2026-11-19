@@ -322,3 +322,38 @@ def test_costs_section_and_estimate(app, repo, boxes):
     saved = repo.get_order(dlg.saved_id)
     assert (saved.labor_alloc, saved.materials_alloc, saved.total_materials_cost) == (1_000_000, 700_000, 900_000)
     assert saved.estimated_total == 1_900_000
+
+
+def _type(money_edit, text):
+    """محاكاة كتابة المستخدم في حقل مبلغ."""
+    money_edit.edit.setText(text)
+    money_edit.edit.textEdited.emit(text)
+
+
+def test_unavailable_edit_after_approval_adjusts_total(app, repo, boxes):
+    oid = repo.save_order(make_order(order_no=60, submit_no="1", submit_date=date(2026, 1, 1),
+                                     response="approved", response_no="2", response_date=date(2026, 2, 1),
+                                     labor_alloc=450_000_000, materials_alloc=320_000_000,
+                                     total_materials_cost=540_000_000))
+    dlg = od.OrderDialog(repo, repo.get_order(oid), today=TODAY)
+    assert "220,000,000" in dlg.available_label.text()  # المتوفرة = 540 − 320
+    _type(dlg.materials_alloc_edit, "")  # مسح ثم كتابة المبلغ الجديد حرفاً حرفاً
+    for partial in ("3", "30", "300", "300000000"):
+        _type(dlg.materials_alloc_edit, partial)
+    assert dlg.total_materials_edit.value() == 520_000_000  # 220 + 300
+    assert not dlg.auto_adjust_label.isHidden() and "540,000,000" in dlg.auto_adjust_label.text()
+    _type(dlg.labor_edit, "400000000")  # تعديل الأجور لا يغيّر كلفة المواد
+    assert dlg.total_materials_edit.value() == 520_000_000
+    assert dlg.estimated_label.text() == "920,000,000 دينار"
+    dlg._save(and_new=False)
+    saved = repo.get_order(oid)
+    assert (saved.labor_alloc, saved.materials_alloc, saved.total_materials_cost) == (
+        400_000_000, 300_000_000, 520_000_000)
+
+
+def test_unavailable_edit_before_approval_is_independent(app, repo, boxes):
+    dlg = od.OrderDialog(repo, None, today=TODAY)
+    _type(dlg.total_materials_edit, "540000000")
+    _type(dlg.materials_alloc_edit, "320000000")  # عند الإعداد: لا تعديل تلقائي
+    assert dlg.total_materials_edit.value() == 540_000_000
+    assert dlg.auto_adjust_label.isHidden()
