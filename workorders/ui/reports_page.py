@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
-    QMessageBox,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -25,6 +24,7 @@ from PySide6.QtWidgets import (
 from ..export import report_to_html, report_to_xlsx
 from ..reports import GROUP_BY, GROUPED_REPORTS, REPORT_TYPES, Report, ReportContext, build_report
 from ..repository import Repository
+from . import messages
 from .filter_bar import FilterBar
 from .printing import print_preview, safe_filename, save_pdf
 from .widgets import combo_value, make_combo
@@ -169,9 +169,9 @@ class ReportsPage(QWidget):
         try:
             save_pdf(self.report, Path(path), self.font_family)
         except OSError as exc:
-            QMessageBox.critical(self, "خطأ", f"تعذر حفظ الملف.\n\n{exc}")
+            messages.critical(self, "خطأ", f"تعذر حفظ الملف.\n\n{exc}")
             return
-        QMessageBox.information(self, "تم", f"تم حفظ الملف:\n{path}")
+        messages.information(self, "تم", f"تم حفظ الملف:\n{path}")
 
     def _excel(self):
         if not self.report:
@@ -184,6 +184,6 @@ class ReportsPage(QWidget):
         try:
             report_to_xlsx(self.report, Path(path))
         except OSError as exc:
-            QMessageBox.critical(self, "خطأ", f"تعذر حفظ الملف. قد يكون مفتوحاً في Excel.\n\n{exc}")
+            messages.critical(self, "خطأ", f"تعذر حفظ الملف. قد يكون مفتوحاً في Excel.\n\n{exc}")
             return
-        QMessageBox.information(self, "تم", f"تم حفظ الملف:\n{path}")
+        messages.information(self, "تم", f"تم حفظ الملف:\n{path}")

@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
-    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -23,6 +22,7 @@ from ..constants import APP_NAME, EDITION_NAME
 from ..paths import AppPaths
 from ..reports import OrderFilter
 from ..repository import Repository
+from . import messages
 from .dashboard import DashboardPage
 from .order_dialog import SAVE_AND_NEW, OrderDialog
 from .orders_page import OrdersPage
@@ -156,6 +156,6 @@ class MainWindow(QMainWindow):
             try:
                 auto_backup(self.repo.conn, self.paths.backups_dir)
             except Exception as exc:  # noqa: BLE001
-                QMessageBox.warning(self, "تنبيه", f"تعذر أخذ النسخة الاحتياطية التلقائية:\n{exc}")
+                messages.warning(self, "تنبيه", f"تعذر أخذ النسخة الاحتياطية التلقائية:\n{exc}")
         super().closeEvent(event)
 

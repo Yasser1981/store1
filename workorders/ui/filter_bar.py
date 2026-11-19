@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QLineEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QCheckBox, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 
 from ..constants import ORDER_TYPES, VOLTAGES, WORK_TYPES
 from ..reports import STATUS_FILTERS, OrderFilter
@@ -41,6 +41,8 @@ class FilterBar(QWidget):
         self.status = make_combo(_with_all(STATUS_FILTERS, "كل الحالات"))
         self.head = make_combo([])
         self.rolled = QCheckBox("المدوّرة فقط")
+        self.early = QCheckBox("⚠ المباشرة قبل الموافقة فقط")
+        self.early.setToolTip("أوامر العمل التي تاريخ مباشرتها يسبق تاريخ كتاب الموافقة (حالات استثنائية للمراجعة)")
         self.search = QLineEdit()
         self.search.setPlaceholderText("بحث برقم أمر العمل (مثل 10 أو 10/2026) أو بجزء من اسم المشروع")
         self.search.setClearButtonEnabled(True)
@@ -58,7 +60,12 @@ class FilterBar(QWidget):
             grid.addWidget(widget, row, col * 2 + 1)
         last = len(pairs)
         row, col = divmod(last, columns)
-        grid.addWidget(self.rolled, row, col * 2, 1, 2)
+        checks = QHBoxLayout()
+        checks.setContentsMargins(0, 0, 0, 0)
+        checks.addWidget(self.rolled)
+        checks.addWidget(self.early)
+        checks.addStretch(1)
+        grid.addLayout(checks, row, col * 2, 1, max(2, (columns - col) * 2))
         next_row = row + 1
         if show_search:
             grid.addWidget(QLabel("بحث"), next_row, 0)
@@ -77,6 +84,7 @@ class FilterBar(QWidget):
         for combo in (self.year, self.order_type, self.work_type, self.voltage, self.sector, self.status, self.head):
             combo.currentIndexChanged.connect(self._on_change)
         self.rolled.toggled.connect(self._on_change)
+        self.early.toggled.connect(self._on_change)
         self.search.textChanged.connect(lambda *_: self._timer.start())
         self.clear_btn.clicked.connect(self.reset)
         self.reset(emit=False)
@@ -102,9 +110,10 @@ class FilterBar(QWidget):
             combo.blockSignals(True)
             combo.setCurrentIndex(0)
             combo.blockSignals(False)
-        self.rolled.blockSignals(True)
-        self.rolled.setChecked(False)
-        self.rolled.blockSignals(False)
+        for box in (self.rolled, self.early):
+            box.blockSignals(True)
+            box.setChecked(False)
+            box.blockSignals(False)
         self.search.blockSignals(True)
         self.search.clear()
         self.search.blockSignals(False)
@@ -125,6 +134,7 @@ class FilterBar(QWidget):
             if combo.currentIndex() < 0:
                 combo.setCurrentIndex(0)
         self.rolled.setChecked(f.rolled_only)
+        self.early.setChecked(f.early_start_only)
         self.search.setText(f.text)
         self.blockSignals(False)
         self.changed.emit()
@@ -139,5 +149,6 @@ class FilterBar(QWidget):
             status=combo_value(self.status),
             committee_head_id=combo_value(self.head),
             rolled_only=self.rolled.isChecked(),
+            early_start_only=self.early.isChecked(),
             text=self.search.text(),
         )

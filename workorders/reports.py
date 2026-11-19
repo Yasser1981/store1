@@ -40,6 +40,7 @@ class OrderFilter:
     status: str | None = None
     committee_head_id: int | None = None
     rolled_only: bool = False
+    early_start_only: bool = False  # المباشرة قبل الموافقة (للمراجعة)
     text: str = ""
 
     def is_empty(self) -> bool:
@@ -91,6 +92,8 @@ def apply_filter(orders: list[WorkOrder], f: OrderFilter, today: date) -> list[W
             continue
         if f.rolled_only and rolled_to_year(o, today) is None:
             continue
+        if f.early_start_only and not o.started_before_approval:
+            continue
         if not _text_matches(o, f.text):
             continue
         result.append(o)
@@ -129,6 +132,8 @@ def describe_filter(f: OrderFilter, ctx: ReportContext) -> str:
         parts.append(f"الحالة: {STATUS_FILTERS[f.status]}")
     if f.committee_head_id is not None:
         parts.append(f"رئيس اللجنة: {ctx.head_name(f.committee_head_id)}")
+    if f.early_start_only:
+        parts.append("المباشرة قبل تاريخ الموافقة (للمراجعة)")
     if f.rolled_only:
         parts.append("المدوّرة فقط")
     if f.text.strip():

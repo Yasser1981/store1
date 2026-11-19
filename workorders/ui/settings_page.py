@@ -38,6 +38,7 @@ from ..constants import APP_NAME, EDITION_NAME, ORG_LINE, UNITS
 from ..db import SCHEMA_VERSION, DatabaseTooNewError, NotOurDatabaseError, migrate
 from ..paths import AppPaths
 from ..repository import LookupError_, Repository
+from . import messages
 from .widgets import combo_value, make_combo, set_combo_value
 
 
@@ -170,7 +171,7 @@ class LookupEditor(QWidget):
         try:
             new_id = self.repo.add_lookup(self.kind, name, unit)
         except LookupError_ as exc:
-            QMessageBox.warning(self, "تنبيه", str(exc))
+            messages.warning(self, "تنبيه", str(exc))
             return
         self.refresh(select_id=new_id)
         self.changed.emit()
@@ -185,7 +186,7 @@ class LookupEditor(QWidget):
         name, unit = dlg.values()
         used = self.repo.lookup_usage(self.kind, item.id)
         if used and name.strip() != item.name:
-            answer = QMessageBox.question(
+            answer = messages.question(
                 self, "تأكيد التعديل",
                 f"هذا الاسم مستخدم في {used} أمر عمل، وسيتغير فيها جميعاً إلى «{name.strip()}».\nهل تريد المتابعة؟")
             if answer != QMessageBox.Yes:
@@ -193,7 +194,7 @@ class LookupEditor(QWidget):
         try:
             self.repo.rename_lookup(self.kind, item.id, name, unit)
         except LookupError_ as exc:
-            QMessageBox.warning(self, "تنبيه", str(exc))
+            messages.warning(self, "تنبيه", str(exc))
             return
         self.refresh()
         self.changed.emit()
@@ -210,13 +211,13 @@ class LookupEditor(QWidget):
         item = self._selected()
         if item is None:
             return
-        answer = QMessageBox.question(self, "حذف", f"هل تريد حذف «{item.name}» من القائمة؟")
+        answer = messages.question(self, "حذف", f"هل تريد حذف «{item.name}» من القائمة؟")
         if answer != QMessageBox.Yes:
             return
         try:
             self.repo.delete_lookup(self.kind, item.id)
         except LookupError_ as exc:
-            QMessageBox.warning(self, "تنبيه", str(exc))
+            messages.warning(self, "تنبيه", str(exc))
             return
         self.refresh()
         self.changed.emit()
@@ -286,14 +287,14 @@ class BackupPanel(QWidget):
         if not path.lower().endswith(".db"):
             path += ".db"
         if Path(path).resolve() == self.paths.db_path.resolve():
-            QMessageBox.warning(self, "تنبيه", "لا يمكن الحفظ فوق قاعدة البيانات الحالية. اختر مكاناً آخر.")
+            messages.warning(self, "تنبيه", "لا يمكن الحفظ فوق قاعدة البيانات الحالية. اختر مكاناً آخر.")
             return
         try:
             copy_database(self.repo.conn, Path(path))
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "خطأ", f"تعذر حفظ النسخة الاحتياطية.\n\n{exc}")
+            messages.critical(self, "خطأ", f"تعذر حفظ النسخة الاحتياطية.\n\n{exc}")
             return
-        QMessageBox.information(self, "تم", f"تم حفظ النسخة الاحتياطية في:\n{path}")
+        messages.information(self, "تم", f"تم حفظ النسخة الاحتياطية في:\n{path}")
 
     def _restore(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -302,19 +303,19 @@ class BackupPanel(QWidget):
             return
         src = Path(path)
         if src.resolve() == self.paths.db_path.resolve():
-            QMessageBox.warning(self, "تنبيه", "هذا الملف هو قاعدة البيانات الحالية نفسها.")
+            messages.warning(self, "تنبيه", "هذا الملف هو قاعدة البيانات الحالية نفسها.")
             return
         try:
             inspect_backup(src)
         except DatabaseTooNewError:
-            QMessageBox.critical(self, "لا يمكن الاسترجاع",
+            messages.critical(self, "لا يمكن الاسترجاع",
                                  "هذه النسخة الاحتياطية من إصدار أحدث للبرنامج. استخدم الإصدار الأحدث لاسترجاعها.")
             return
         except NotOurDatabaseError:
-            QMessageBox.critical(self, "لا يمكن الاسترجاع",
+            messages.critical(self, "لا يمكن الاسترجاع",
                                  "الملف المختار ليس نسخة احتياطية صالحة لبرنامج أرشيف أوامر العمل، أو أنه تالف.")
             return
-        answer = QMessageBox.warning(
+        answer = messages.warning(
             self, "تأكيد الاسترجاع",
             "سيتم استبدال جميع البيانات الحالية ببيانات النسخة الاحتياطية المختارة:\n"
             f"{src.name}\n\n(سيأخذ البرنامج نسخة احتياطية من البيانات الحالية قبل الاستبدال)\n\nهل تريد المتابعة؟",
@@ -326,12 +327,12 @@ class BackupPanel(QWidget):
             restore_into(self.repo.conn, src)
             migrate(self.repo.conn)
         except Exception as exc:  # noqa: BLE001
-            QMessageBox.critical(self, "خطأ", f"تعذر الاسترجاع.\n\n{exc}")
+            messages.critical(self, "خطأ", f"تعذر الاسترجاع.\n\n{exc}")
             return
         self.repo.changed = True
         self.refresh()
         self.restored.emit()
-        QMessageBox.information(self, "تم", "تم استرجاع البيانات بنجاح.")
+        messages.information(self, "تم", "تم استرجاع البيانات بنجاح.")
 
 
 class AboutPanel(QWidget):

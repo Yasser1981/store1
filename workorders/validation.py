@@ -178,9 +178,9 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
             add(fname, f"{title} ({fmt_date(d)}) لا يمكن أن يكون بعد تاريخ اليوم.")
 
     # تسلسل المراحل: الرفع ← الرد ← المباشرة (كتابها وتاريخها الفعلي بأي ترتيب بينهما) ← الغلق
+    # ملاحظة: المباشرة قبل تاريخ الموافقة ليست خطأً مانعاً بل تنبيه فقط (انظر warnings)
     order_rules = [
         (response, submit),
-        (start_book, response), (start_actual, response),
         (close, start_book), (close, start_actual),
     ]
     for (fname, title, d), (_, prev_title, prev) in order_rules:
@@ -194,3 +194,15 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
                 break
 
     return issues
+
+
+def warnings(o: WorkOrder) -> list[Issue]:
+    """تنبيهات لا تمنع الحفظ، لكن يجب أن يؤكدها المستخدم."""
+    result = []
+    if o.started_before_approval:
+        for field, title, d in (("start_date", "تاريخ الأمر الإداري بالمباشرة", o.start_date),
+                                ("actual_start_date", "تاريخ المباشرة الفعلي", o.actual_start_date)):
+            if d is not None and d < o.response_date:
+                result.append(Issue(field, f"{title} ({fmt_date(d)}) يسبق تاريخ كتاب الموافقة "
+                                           f"({fmt_date(o.response_date)})."))
+    return result

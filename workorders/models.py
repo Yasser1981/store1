@@ -112,6 +112,14 @@ class WorkOrder:
         return self.actual_start_date or self.start_date
 
     @property
+    def started_before_approval(self) -> bool:
+        """حالة استثنائية مسموحة مع تنبيه: تاريخ المباشرة (الأمر الإداري أو الفعلي) قبل تاريخ الموافقة،
+        كأن تكون المباشرة بناءً على موافقة سابقة."""
+        if self.response != "approved" or self.response_date is None:
+            return False
+        return any(d is not None and d < self.response_date for d in (self.start_date, self.actual_start_date))
+
+    @property
     def effective_materials(self) -> dict[int, int]:
         """المواد الحاكمة تخص أوامر عمل الشبكة الكهربائية فقط."""
         return self.materials if self.is_network else {}

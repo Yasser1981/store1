@@ -10,6 +10,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
 
 from workorders.paths import AppPaths  # noqa: E402
+from workorders.ui import messages  # noqa: E402
 from workorders.ui import order_dialog as od  # noqa: E402
 from workorders.ui.style import apply_style  # noqa: E402
 
@@ -34,9 +35,10 @@ def boxes(monkeypatch):
         shown.append(("warning", title, text))
         return QMessageBox.Ok
 
-    monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
-    monkeypatch.setattr(QMessageBox, "warning", staticmethod(warning))
-    monkeypatch.setattr(QMessageBox, "information", staticmethod(warning))
+    monkeypatch.setattr(messages, "question", question)
+    monkeypatch.setattr(messages, "warning", warning)
+    monkeypatch.setattr(messages, "information", warning)
+    monkeypatch.setattr(messages, "critical", warning)
     return shown
 
 
@@ -207,3 +209,49 @@ def test_materials_hidden_for_non_network(app, repo, boxes):
     assert dlg.materials_box.isHidden()
     dlg._save(and_new=False)
     assert repo.get_order(dlg.saved_id).materials == {}
+
+
+def test_start_before_approval_warns_but_saves(app, repo, monkeypatch, boxes):
+    oid = repo.save_order(make_order(order_no=40, submit_no="1", submit_date=date(2026, 1, 1),
+                                     response="approved", response_no="2", response_date=date(2026, 3, 1)))
+    dlg = od.OrderDialog(repo, repo.get_order(oid), today=TODAY)
+    dlg.start_no.setText("5")
+    dlg.start_date.set_date(date(2026, 2, 10))  # قبل الموافقة
+    assert not dlg.early_warning.isHidden()  # تنبيه فوري في الشاشة
+
+    asked = []
+
+    def fake_exec(box):
+        asked.append(box.text())
+        box.clickedButton = lambda: answer[0]
+        for b in box.buttons():
+            if box.buttonRole(b) == (QMessageBox.RejectRole if answer[1] == "back" else QMessageBox.AcceptRole):
+                answer[0] = b
+        return 0
+
+    answer = [None, "back"]
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    dlg._save(and_new=False)
+    assert dlg.saved_id is None and asked  # اختار الرجوع للتصحيح: لم يُحفظ
+
+    answer[1] = "save"
+    dlg._save(and_new=False)
+    saved = repo.get_order(oid)
+    assert dlg.saved_id == oid and saved.start_date == date(2026, 2, 10)
+    assert saved.started_before_approval
+
+    dlg.start_date.set_date(date(2026, 3, 5))
+    assert dlg.early_warning.isHidden()
+
+
+def test_arabic_message_buttons(app, monkeypatch):
+    captured = []
+
+    def fake_exec(box):
+        captured.append(sorted(b.text() for b in box.buttons()))
+        return int(QMessageBox.Yes)
+
+    monkeypatch.setattr(QMessageBox, "exec", fake_exec)
+    assert messages.question(None, "ع", "نص") == QMessageBox.Yes
+    messages.information(None, "ع", "نص")
+    assert captured == [sorted(["نعم", "لا"]), ["حسناً"]]

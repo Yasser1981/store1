@@ -6,7 +6,7 @@ from conftest import TODAY, make_order
 
 from workorders.constants import Status
 from workorders.models import compute_status, rolled_to_year
-from workorders.validation import allowed_years, number_conflicts, validate
+from workorders.validation import allowed_years, number_conflicts, validate, warnings
 
 
 def fields(issues):
@@ -134,8 +134,6 @@ def test_response_requires_submission():
 def test_dates_must_follow_sequence():
     o = started(response_date=date(2026, 1, 1))  # قبل تاريخ الرفع
     assert "response_date" in fields(validate(o, [], TODAY))
-    o = started(start_date=date(2026, 2, 15))  # قبل تاريخ الموافقة
-    assert "start_date" in fields(validate(o, [], TODAY))
     o = started(close_no="7", close_date=date(2026, 3, 15))  # قبل تاريخ المباشرة
     assert "close_date" in fields(validate(o, [], TODAY))
 
@@ -242,9 +240,20 @@ def test_actual_start_may_be_before_or_after_book_date():
     assert validate(started(actual_start_date=date(2026, 4, 10)), [], TODAY) == []  # بعد الكتاب
 
 
-def test_actual_start_after_approval_and_before_close():
-    o = started(actual_start_date=date(2026, 2, 20))  # قبل الموافقة
-    assert "actual_start_date" in fields(validate(o, [], TODAY))
+def test_start_before_approval_is_warning_not_error():
+    # حالة استثنائية: المباشرة بناءً على موافقة سابقة ← تنبيه فقط ويُسمح بالحفظ
+    o = started(actual_start_date=date(2026, 2, 20))  # الفعلي قبل الموافقة (01/03)
+    assert validate(o, [], TODAY) == []
+    assert o.started_before_approval
+    assert [w.field for w in warnings(o)] == ["actual_start_date"]
+    o = started(start_date=date(2026, 2, 15), actual_start_date=date(2026, 2, 15))
+    assert validate(o, [], TODAY) == []
+    assert {w.field for w in warnings(o)} == {"start_date", "actual_start_date"}
+    o = started()  # الحالة الطبيعية: لا تنبيه
+    assert not o.started_before_approval and warnings(o) == []
+
+
+def test_close_not_before_actual_start():
     o = started(actual_start_date=date(2026, 6, 1), close_no="5", close_date=date(2026, 5, 1))
     assert "close_date" in fields(validate(o, [], TODAY))
 

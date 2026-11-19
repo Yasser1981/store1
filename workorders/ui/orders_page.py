@@ -27,6 +27,7 @@ from ..models import WorkOrder, compute_status, rolled_to_year
 from ..reports import ReportContext, apply_filter, describe_filter, report_detail
 from ..repository import Repository
 from ..textutil import fmt_date
+from . import messages
 from .filter_bar import FilterBar
 from .printing import safe_filename
 
@@ -143,7 +144,7 @@ class OrdersPage(QWidget):
                 SortItem(str(o.order_no), o.order_no),
                 SortItem(str(o.order_year), o.order_year),
                 SortItem(o.order_type_label),
-                SortItem(STATUS_LABELS[status]),
+                SortItem(STATUS_LABELS[status] + ("  ⚠" if o.started_before_approval else "")),
                 SortItem(o.project_name),
                 SortItem(o.work_description),
                 SortItem(o.sector_name or "" if o.needs_sector else ""),
@@ -161,6 +162,8 @@ class OrdersPage(QWidget):
                     item.setTextAlignment(Qt.AlignCenter)
                 if c in (COL_PROJECT, COL_WORK):
                     item.setToolTip(item.text())
+                if c == COL_STATUS and o.started_before_approval:
+                    item.setToolTip("⚠ تاريخ المباشرة يسبق تاريخ كتاب الموافقة (حالة استثنائية – للمراجعة)")
                 if c == COL_STATUS:
                     fg, bg = STATUS_COLORS[status]
                     item.setForeground(QColor(fg))
@@ -237,6 +240,6 @@ class OrdersPage(QWidget):
         try:
             report_to_xlsx(report, Path(path))
         except OSError as exc:
-            QMessageBox.critical(self, "خطأ", f"تعذر حفظ الملف. قد يكون مفتوحاً في Excel.\n\n{exc}")
+            messages.critical(self, "خطأ", f"تعذر حفظ الملف. قد يكون مفتوحاً في Excel.\n\n{exc}")
             return
-        QMessageBox.information(self, "تم", f"تم حفظ الملف:\n{path}")
+        messages.information(self, "تم", f"تم حفظ الملف:\n{path}")

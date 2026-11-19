@@ -131,3 +131,14 @@ def test_auto_cancelled_in_reports(repo):
     assert [o.order_no for o in open_now] == [4]
     not_void = apply_filter(repo.all_orders(), OrderFilter(status="not_void"), ctx.today)
     assert sorted(o.order_no for o in not_void) == [4]
+
+
+def test_early_start_filter(repo):
+    ctx = seed(repo)
+    o = next(x for x in repo.all_orders() if x.order_no == 4)
+    o.actual_start_date = date(2026, 3, 20)  # قبل الموافقة 02/04
+    repo.save_order(o)
+    found = apply_filter(repo.all_orders(), OrderFilter(early_start_only=True), TODAY)
+    assert [x.order_no for x in found] == [4]
+    rep = build_report("detail", repo.all_orders(), ctx, OrderFilter(early_start_only=True))
+    assert "المباشرة قبل تاريخ الموافقة" in rep.filters_text

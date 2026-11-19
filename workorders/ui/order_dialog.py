@@ -39,6 +39,8 @@ from ..models import WorkOrder, compute_status, rolled_to_year
 from ..repository import Repository
 from ..textutil import clean_spaces
 from ..validation import Issue, allowed_years, number_conflicts, validate
+from ..validation import warnings as validation_warnings
+from . import messages
 from .style import set_error
 from .widgets import (
     DateEdit,
@@ -321,6 +323,12 @@ class OrderDialog(QDialog):
         g.addWidget(self._label("تاريخ المباشرة الفعلي"), 3, 0)
         g.addWidget(self.actual_start, 3, 1)
         g.addWidget(actual_hint, 3, 2, 1, 2)
+        self.early_warning = QLabel()
+        self.early_warning.setWordWrap(True)
+        self.early_warning.setStyleSheet(
+            "color:#8a4b00; background:#fff3e0; border:1px solid #f0b46a; border-radius:5px; padding:6px;")
+        self.early_warning.hide()
+        g.addWidget(self.early_warning, 4, 0, 1, 4)
         self.fields.update(committee_head=self.head_combo, start_no=self.start_no, start_date=self.start_date.line,
                            actual_start_date=self.actual_start.line)
         # تاريخ المباشرة الفعلي يتبع تاريخ الأمر الإداري ما لم يعدّله المستخدم
@@ -594,6 +602,15 @@ class OrderDialog(QDialog):
         year = rolled_to_year(o, self.today)
         self.rolled_label.setText(f"مدوّر إلى سنة {year}" if year else "")
 
+        # ---- تنبيه (غير مانع): المباشرة قبل تاريخ الموافقة
+        early = validation_warnings(o)
+        self.early_warning.setVisible(bool(early))
+        if early:
+            self.early_warning.setText(
+                "⚠ تنبيه: " + " ".join(w.message for w in early)
+                + " تأكد من صحة التاريخ. يُقبل الحفظ إذا كانت المباشرة بناءً على موافقة سابقة، "
+                "ويُفضّل كتابة السبب في حقل الملاحظات.")
+
     def _set_section(self, box: QGroupBox, hint: QLabel, enabled: bool, reason: str):
         box.setEnabled(enabled)
         hint.setVisible(not enabled)
@@ -651,7 +668,7 @@ class OrderDialog(QDialog):
         text = "\n".join(f"• {m}" for m in unique[:12])
         if len(unique) > 12:
             text += f"\n... و{len(unique) - 12} ملاحظات أخرى"
-        QMessageBox.warning(self, "لا يمكن الحفظ", "يرجى تصحيح الملاحظات الآتية:\n\n" + text)
+        messages.warning(self, "لا يمكن الحفظ", "يرجى تصحيح الملاحظات الآتية:\n\n" + text)
 
     def _resolve_head(self, o: WorkOrder) -> bool:
         """تحويل اسم رئيس لجنة جديد إلى عنصر في القائمة (مع منع التكرار)."""
@@ -661,7 +678,7 @@ class OrderDialog(QDialog):
         similar = self.repo.find_similar("heads", name)
         if similar:
             existing = similar[0]
-            answer = QMessageBox.question(
+            answer = messages.question(
                 self, "اسم مشابه",
                 f"يوجد في القائمة اسم مشابه:\n«{existing.name}»\n\nهل تقصد هذا الاسم؟\n"
                 "(نعم: استخدام الاسم الموجود — لا: الرجوع لتعديل الاسم)",
@@ -673,7 +690,7 @@ class OrderDialog(QDialog):
                 return True
             self.head_combo.setFocus()
             return False
-        answer = QMessageBox.question(
+        answer = messages.question(
             self, "اسم جديد",
             f"الاسم «{name}» غير موجود في قائمة رؤساء اللجان.\n\nهل تريد إضافته إلى القائمة؟ (تأكد من كتابته بشكل صحيح)",
         )
@@ -693,8 +710,10 @@ class OrderDialog(QDialog):
             return
         for w in self.fields.values():
             set_error(w, False)
+        if not self._confirm_warnings(o):
+            return
         if o.has_cancel and not self.order.has_cancel:
-            answer = QMessageBox.question(
+            answer = messages.question(
                 self, "تأكيد الإلغاء", f"هل أنت متأكد من تسجيل إلغاء أمر العمل {o.ref}؟")
             if answer != QMessageBox.Yes:
                 return
@@ -704,13 +723,43 @@ class OrderDialog(QDialog):
         self._initial = self._snapshot()
         self.done(SAVE_AND_NEW if and_new else QDialog.Accepted)
 
+    def _confirm_warnings(self, o: WorkOrder) -> bool:
+        """التنبيهات لا تمنع الحفظ، لكن تُعرض على المستخدم ليؤكد أن البيانات صحيحة."""
+        found = validation_warnings(o)
+        if not found:
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("تنبيه: المباشرة قبل الموافقة")
+        box.setText("\n".join(f"• {w.message}" for w in found))
+        box.setInformativeText(
+            "هذه حالة استثنائية (مثل المباشرة بناءً على موافقة سابقة).\n"
+            "هل التواريخ صحيحة وتريد الحفظ؟\n\n"
+            "سيظهر أمر العمل بعلامة ⚠ في القائمة للمراجعة، ويُفضّل كتابة السبب في حقل الملاحظات.")
+        save = box.addButton("نعم، التواريخ صحيحة – احفظ", QMessageBox.AcceptRole)
+        back = box.addButton("لا، أرجع لتصحيح التاريخ", QMessageBox.RejectRole)
+        box.setDefaultButton(back)
+        box.exec()
+        if box.clickedButton() is save:
+            return True
+        first = None
+        for w in found:
+            widget = self.fields.get(w.field)
+            if widget is not None:
+                set_error(widget, True)
+                first = first or widget
+        if first is not None:
+            self.scroll.ensureWidgetVisible(first, 50, 80)
+            first.setFocus()
+        return False
+
     # ==================================================================
     def is_dirty(self) -> bool:
         return self._snapshot() != self._initial
 
     def reject(self):
         if self.is_dirty():
-            answer = QMessageBox.question(
+            answer = messages.question(
                 self, "خروج بدون حفظ", "توجد تغييرات لم تُحفظ.\nهل تريد الخروج بدون حفظ؟",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if answer != QMessageBox.Yes:

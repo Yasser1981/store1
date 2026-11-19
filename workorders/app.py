@@ -6,8 +6,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QLockFile, Qt
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtCore import QLockFile
+from PySide6.QtWidgets import QApplication
 
 from . import __version__
 from .backup import backup_file_before_upgrade
@@ -18,9 +18,9 @@ from .repository import Repository
 
 
 def _error(title: str, text: str) -> None:
-    box = QMessageBox(QMessageBox.Critical, title, text)
-    box.setLayoutDirection(Qt.RightToLeft)
-    box.exec()
+    from .ui import messages
+
+    messages.critical(None, title, text)
 
 
 def selftest(app: QApplication, font_family: str, out_file: Path) -> int:
