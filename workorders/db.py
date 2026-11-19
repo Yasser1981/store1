@@ -16,7 +16,7 @@ from pathlib import Path
 from . import __version__
 from .constants import APP_ID, DEFAULT_MATERIALS, DEFAULT_SECTORS
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 class DatabaseError(Exception):
@@ -182,10 +182,16 @@ def _migration_3(conn: sqlite3.Connection) -> None:
     )""")
 
 
+def _migration_4(conn: sqlite3.Connection) -> None:
+    """الإصدار 1.3.0: الكلفة الكلية للمواد (المتوفرة وغير المتوفرة)."""
+    conn.execute("ALTER TABLE work_orders ADD COLUMN total_materials_cost INTEGER")
+
+
 MIGRATIONS = {
     1: _migration_1,
     2: _migration_2,
     3: _migration_3,
+    4: _migration_4,
 }
 
 

@@ -123,6 +123,7 @@ class OrderDialog(QDialog):
         outer.addWidget(scroll, 1)
 
         self._build_basic()
+        self._build_costs()
         self._build_submit()
         self._build_response()
         self._build_materials()
@@ -248,8 +249,6 @@ class OrderDialog(QDialog):
         self.response_combo = make_combo(RESPONSES)
         self.response_no = NumberEdit(placeholder="رقم الكتاب")
         self.response_date = DateEdit()
-        self.labor_edit = MoneyEdit()
-        self.materials_alloc_edit = MoneyEdit()
         g.addWidget(self._label("الرد"), 1, 0)
         g.addWidget(self.response_combo, 1, 1)
         self.response_no_lbl = self._label("رقم كتاب الموافقة")
@@ -258,20 +257,43 @@ class OrderDialog(QDialog):
         g.addWidget(self.response_no, 2, 1)
         g.addWidget(self.response_date_lbl, 2, 2)
         g.addWidget(self.response_date, 2, 3)
-        self.labor_lbl = self._label("تخصيص أجور العمل")
-        self.mat_alloc_lbl = self._label("تخصيص شراء المواد غير المتوفرة")
-        g.addWidget(self.labor_lbl, 3, 0)
-        g.addWidget(self.labor_edit, 3, 1)
-        g.addWidget(self.mat_alloc_lbl, 3, 2)
-        g.addWidget(self.materials_alloc_edit, 3, 3)
+        self.approval_costs_hint = QLabel(
+            "إذا تضمنت الموافقة تعديلاً في أجور العمل أو كلفة المواد غير المتوفرة، عدّل المبالغ في قسم (الكلف).")
+        self.approval_costs_hint.setObjectName("hint")
+        self.approval_costs_hint.setWordWrap(True)
+        g.addWidget(self.approval_costs_hint, 3, 0, 1, 4)
         self.fields.update(response=self.response_combo, response_no=self.response_no,
-                           response_date=self.response_date.line, labor_alloc=self.labor_edit.edit,
-                           materials_alloc=self.materials_alloc_edit.edit)
+                           response_date=self.response_date.line)
         self.response_combo.currentIndexChanged.connect(self._refresh)
         self.response_no.textChanged.connect(self._refresh)
         self.response_date.changed.connect(self._refresh)
-        self.labor_edit.textChanged.connect(self._refresh)
-        self.materials_alloc_edit.textChanged.connect(self._refresh)
+
+    def _build_costs(self):
+        box, g = self._section("2. الكلف (بالدينار العراقي)")
+        hint = QLabel("تُدخل المبالغ المطلوبة عند إعداد أمر العمل، وتُعدَّل لاحقاً إذا جاءت الموافقة بمبالغ مختلفة.")
+        hint.setObjectName("hint")
+        hint.setWordWrap(True)
+        g.addWidget(hint, 0, 0, 1, 4)
+        self.labor_edit = MoneyEdit()
+        self.materials_alloc_edit = MoneyEdit()
+        self.total_materials_edit = MoneyEdit()
+        self.estimated_label = QLabel()
+        self.estimated_label.setStyleSheet(
+            "font-weight:bold; color:#0d3c61; background:#eef4fb; border:1px solid #b8c4d2; "
+            "border-radius:5px; padding:6px 10px;")
+        self.estimated_label.setToolTip("تُحسب تلقائياً: الكلفة الكلية للمواد + أجور العمل")
+        g.addWidget(self._label("أجور العمل"), 1, 0)
+        g.addWidget(self.labor_edit, 1, 1)
+        g.addWidget(self._label("كلفة المواد غير المتوفرة (للشراء)"), 1, 2)
+        g.addWidget(self.materials_alloc_edit, 1, 3)
+        g.addWidget(self._label("الكلفة الكلية للمواد\n(المتوفرة وغير المتوفرة)"), 2, 0)
+        g.addWidget(self.total_materials_edit, 2, 1)
+        g.addWidget(self._label("الكلفة الكلية التخمينية\nللمشروع (تلقائياً)"), 2, 2)
+        g.addWidget(self.estimated_label, 2, 3)
+        self.fields.update(labor_alloc=self.labor_edit.edit, materials_alloc=self.materials_alloc_edit.edit,
+                           total_materials_cost=self.total_materials_edit.edit)
+        for w in (self.labor_edit, self.materials_alloc_edit, self.total_materials_edit):
+            w.textChanged.connect(self._refresh)
 
     def _build_materials(self):
         box, g = self._section("4. المواد الحاكمة الداخلة في المشروع (اترك الحقل فارغاً إذا لم تدخل المادة)")
@@ -431,6 +453,7 @@ class OrderDialog(QDialog):
         self.response_date.set_date(o.response_date)
         self.labor_edit.set_value(o.labor_alloc)
         self.materials_alloc_edit.set_value(o.materials_alloc)
+        self.total_materials_edit.set_value(o.total_materials_cost)
 
         for mid, edit in self.material_edits.items():
             edit.set_value(o.materials.get(mid))
@@ -478,9 +501,9 @@ class OrderDialog(QDialog):
         if o.response != "pending":
             o.response_no = self.response_no.text_value()
             o.response_date = self.response_date.date()
-        if o.response == "approved":
-            o.labor_alloc = self.labor_edit.value()
-            o.materials_alloc = self.materials_alloc_edit.value()
+        o.labor_alloc = self.labor_edit.value()
+        o.materials_alloc = self.materials_alloc_edit.value()
+        o.total_materials_cost = self.total_materials_edit.value()
 
         if o.work_type == "network":  # المواد الحاكمة لأوامر عمل الشبكة الكهربائية فقط
             o.materials = {mid: e.value() for mid, e in self.material_edits.items() if e.value()}
@@ -554,8 +577,7 @@ class OrderDialog(QDialog):
         response = combo_value(self.response_combo) or "pending"
         submit_complete = bool(o.submit_no and o.submit_date)
         response_has_data = (response != "pending" or bool(self.response_no.text())
-                             or not self.response_date.is_empty() or bool(self.labor_edit.value())
-                             or bool(self.materials_alloc_edit.value()))
+                             or not self.response_date.is_empty())
         self._set_section(self.response_box, self.response_hint, submit_complete or response_has_data,
                           "يُفعَّل هذا القسم بعد إدخال رقم وتاريخ كتاب الرفع.")
         show_book = response != "pending"
@@ -564,8 +586,10 @@ class OrderDialog(QDialog):
         word = "الموافقة" if response == "approved" else "الرفض"
         self.response_no_lbl.setText(f"رقم كتاب {word}")
         self.response_date_lbl.setText(f"تاريخ كتاب {word}")
-        for w in (self.labor_lbl, self.labor_edit, self.mat_alloc_lbl, self.materials_alloc_edit):
-            w.setVisible(response == "approved")
+        self.approval_costs_hint.setVisible(response == "approved")
+        estimate = o.estimated_total
+        self.estimated_label.setText(f"{estimate:,} دينار" if estimate is not None
+                                     else "— (أدخل الكلفة الكلية للمواد)")
 
         # ---- قسم التنفيذ
         exec_has_data = bool(clean_spaces(self.head_combo.currentText())) or flags["start"]

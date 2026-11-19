@@ -129,8 +129,6 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
     if o.response != "pending" and not o.has_submit:
         add("response", "لا يمكن إدخال رد الشركة العامة قبل إدخال كتاب الرفع.")
     if o.response == "rejected":
-        if o.labor_alloc is not None or o.materials_alloc is not None:
-            add("labor_alloc", "أمر العمل المرفوض لا يكون له تخصيص مالي.")
         if o.committee_head_id is not None or o.has_start:
             add("start_no", "أمر العمل المرفوض لا يمكن المباشرة به. احذف بيانات التنفيذ أو غيّر الرد.")
         if o.has_close:
@@ -138,8 +136,6 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
         if o.has_cancel:
             add("cancel_no", "أمر العمل المرفوض لا يحتاج إلى إلغاء.")
     if o.response != "approved":
-        if o.response == "pending" and (o.labor_alloc is not None or o.materials_alloc is not None):
-            add("labor_alloc", "مبالغ التخصيص تُدخل بعد ورود الموافقة.")
         if o.response == "pending" and (o.has_start or o.committee_head_id is not None):
             add("start_no", "لا يمكن إدخال بيانات التنفيذ قبل ورود الموافقة.")
     if (o.start_no or o.start_date) and o.actual_start_date is None:
@@ -156,9 +152,15 @@ def validate(o: WorkOrder, others_same_no: list[WorkOrder], today: date) -> list
     if o.has_close and o.has_cancel:
         add("cancel_no", "لا يمكن أن يكون أمر العمل مغلقاً وملغى في نفس الوقت.")
 
-    for name, value in (("labor_alloc", o.labor_alloc), ("materials_alloc", o.materials_alloc)):
+    for name, value in (("labor_alloc", o.labor_alloc), ("materials_alloc", o.materials_alloc),
+                        ("total_materials_cost", o.total_materials_cost)):
         if value is not None and value < 0:
             add(name, "المبلغ لا يمكن أن يكون سالباً.")
+    if (o.total_materials_cost is not None and o.materials_alloc is not None
+            and o.total_materials_cost < o.materials_alloc):
+        add("total_materials_cost",
+            f"الكلفة الكلية للمواد ({o.total_materials_cost:,} دينار) لا يمكن أن تكون أقل من كلفة المواد "
+            f"غير المتوفرة ({o.materials_alloc:,} دينار)، لأن المواد غير المتوفرة جزء من الكلفة الكلية للمواد.")
     for qty in o.materials.values():
         if qty is None or qty <= 0:
             add("materials", "كمية المادة يجب أن تكون أكبر من صفر.")

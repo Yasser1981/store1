@@ -63,8 +63,10 @@ class WorkOrder:
     response: str = "pending"
     response_no: str | None = None
     response_date: date | None = None
-    labor_alloc: int | None = None
-    materials_alloc: int | None = None
+    # الكلف: تُدخل عند إعداد أمر العمل (المبالغ المطلوبة) وتُعدَّل إذا جاءت الموافقة بمبالغ مختلفة
+    labor_alloc: int | None = None  # أجور العمل
+    materials_alloc: int | None = None  # كلفة المواد غير المتوفرة (للشراء)
+    total_materials_cost: int | None = None  # الكلفة الكلية للمواد (المتوفرة وغير المتوفرة)
 
     # 4. التنفيذ
     committee_head_id: int | None = None
@@ -110,6 +112,14 @@ class WorkOrder:
     def commencement_date(self) -> date | None:
         """تاريخ المباشرة المعتمد في الحسابات (التدوير، الإلغاء التلقائي، التسلسل): التاريخ الفعلي."""
         return self.actual_start_date or self.start_date
+
+    @property
+    def estimated_total(self) -> int | None:
+        """الكلفة الكلية التخمينية للمشروع = الكلفة الكلية للمواد + أجور العمل (تُحسب تلقائياً).
+        لا تُحسب إلا بعد إدخال الكلفة الكلية للمواد (ولو صفراً) حتى لا تظهر كلفة ناقصة."""
+        if self.total_materials_cost is None:
+            return None
+        return self.total_materials_cost + (self.labor_alloc or 0)
 
     @property
     def started_before_approval(self) -> bool:

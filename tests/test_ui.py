@@ -302,3 +302,23 @@ def test_orders_page_check_calculate_and_groups(app, repo, tmp_path, monkeypatch
     # حذف المجموعة
     page._delete_group()
     assert repo.groups() == [] and repo.order_count() == 3
+
+
+def test_costs_section_and_estimate(app, repo, boxes):
+    dlg = od.OrderDialog(repo, None, today=TODAY)
+    dlg.no_edit.setText("50")
+    set_combo(dlg.type_combo, "operational")
+    dlg.project_edit.setText("مشروع كلف")
+    set_combo(dlg.work_combo, "civil")
+    dlg.labor_edit.edit.setText("1000000")
+    dlg.materials_alloc_edit.edit.setText("700000")
+    dlg.total_materials_edit.edit.setText("600000")  # أقل من غير المتوفرة: يُمنع الحفظ
+    assert dlg.estimated_label.text() == "1,600,000 دينار"
+    dlg._save(and_new=False)
+    assert dlg.saved_id is None and "الكلفة الكلية للمواد" in boxes[-1][2]
+    dlg.total_materials_edit.edit.setText("900000")
+    assert dlg.estimated_label.text() == "1,900,000 دينار"
+    dlg._save(and_new=False)
+    saved = repo.get_order(dlg.saved_id)
+    assert (saved.labor_alloc, saved.materials_alloc, saved.total_materials_cost) == (1_000_000, 700_000, 900_000)
+    assert saved.estimated_total == 1_900_000

@@ -201,4 +201,6 @@ def test_upgrade_from_schema_2_adds_groups(tmp_path):
     conn = open_database(path, backup_before_upgrade=calls.append)
     assert calls == [2]
     assert Repository(conn).groups() == []
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(work_orders)")]
+    assert "total_materials_cost" in cols
     conn.close()

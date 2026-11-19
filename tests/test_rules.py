@@ -267,3 +267,26 @@ def test_rollover_and_auto_cancel_use_actual_date():
 def test_materials_only_for_network():
     assert make_order(work_type="civil", materials={1: 5}).effective_materials == {}
     assert make_order(work_type="network", voltage="lv", materials={1: 5}).effective_materials == {1: 5}
+
+
+# ---------------------------------------------------------------- الكلف
+def test_costs_allowed_before_approval_and_estimate():
+    o = make_order(labor_alloc=100, materials_alloc=40, total_materials_cost=300)
+    assert validate(o, [], TODAY) == []  # تُدخل عند الإعداد قبل الموافقة
+    assert o.estimated_total == 400  # الكلفة الكلية للمواد + أجور العمل
+    assert make_order().estimated_total is None
+    assert make_order(labor_alloc=50).estimated_total is None  # بدون الكلفة الكلية للمواد: لا تُحسب
+    assert make_order(labor_alloc=50, total_materials_cost=0).estimated_total == 50
+
+
+def test_total_materials_not_less_than_unavailable():
+    o = make_order(materials_alloc=500, total_materials_cost=400)
+    assert "total_materials_cost" in fields(validate(o, [], TODAY))
+    o = make_order(materials_alloc=500, total_materials_cost=500)
+    assert validate(o, [], TODAY) == []
+
+
+def test_rejected_may_keep_requested_amounts():
+    o = make_order(submit_no="1", submit_date=date(2026, 1, 1), response="rejected", response_no="2",
+                   response_date=date(2026, 2, 1), labor_alloc=100, materials_alloc=50)
+    assert validate(o, [], TODAY) == []

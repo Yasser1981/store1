@@ -20,6 +20,7 @@ def seed(repo):
         make_order(order_no=3, order_type="trust", work_type="network", voltage="lv", sector_id=s[5].id,
                    submit_no="11", submit_date=date(2026, 3, 2), response="approved", response_no="20",
                    response_date=date(2026, 4, 1), labor_alloc=1_000_000, materials_alloc=500_000,
+                   total_materials_cost=800_000,
                    materials={1: 100, 14: 300}, project_name="شبكة واطئ الحسينية"),
         make_order(order_no=4, order_type="investment", work_type="substation",
                    submit_no="12", submit_date=date(2026, 3, 3), response="approved", response_no="21",
@@ -154,8 +155,9 @@ def test_group_report_costs_and_materials(repo):
     costs = rep.tables[0]
     assert [r["ref"] for r in costs.rows] == ["2/2026", "3/2026", "4/2026"]
     assert costs.total_row["labor"] == 3_000_000 and costs.total_row["materials"] == 500_000
-    assert costs.total_row["total"] == 3_500_000
-    assert costs.rows[0]["total"] is None  # أمر لم ترد موافقته: بدون مبالغ
+    assert costs.total_row["total_materials"] == 800_000
+    assert costs.total_row["estimated"] == 1_800_000  # 800,000 + 1,000,000 (أمر 4 بدون كلفة مواد كلية)
+    assert costs.rows[0]["estimated"] is None  # أمر بدون مبالغ
     totals = {r["name"]: r["qty"] for r in rep.tables[1].rows}
     assert totals == {ctx.materials[0].name: 100, ctx.materials[13].name: 300}  # أمر 4 ليس شبكة: تُهمل مواده
     detail = rep.tables[2]
@@ -169,3 +171,10 @@ def test_order_ids_filter(repo):
     ids = frozenset(o.id for o in repo.all_orders() if o.order_no in (1, 5))
     got = apply_filter(repo.all_orders(), OrderFilter(order_ids=ids), TODAY)
     assert sorted(o.order_no for o in got) == [1, 5]
+
+
+def test_money_report_estimated(repo):
+    ctx = seed(repo)
+    rep = build_report("money", repo.all_orders(), ctx, OrderFilter(), "order_type")
+    t = rep.tables[0].total_row
+    assert t["total_materials"] == 800_000 and t["estimated"] == 1_800_000

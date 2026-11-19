@@ -349,19 +349,24 @@ def report_money(orders, dim, ctx, filters_text) -> Report:
     columns = [
         Column("group", GROUP_BY[dim], width=30),
         Column("count", "عدد الأوامر الموافق عليها", "int", total=True),
-        Column("labor", "تخصيص أجور العمل (دينار)", "money", total=True, width=22),
-        Column("materials", "تخصيص شراء المواد (دينار)", "money", total=True, width=22),
-        Column("sum", "المجموع (دينار)", "money", total=True, width=22),
+        Column("labor", "أجور العمل", "money", total=True, width=20),
+        Column("materials", "كلفة المواد غير المتوفرة", "money", total=True, width=20),
+        Column("sum", "مجموع التخصيص (أجور + مواد غير متوفرة)", "money", total=True, width=24),
+        Column("total_materials", "الكلفة الكلية للمواد", "money", total=True, width=20),
+        Column("estimated", "الكلفة الكلية التخمينية", "money", total=True, width=22),
     ]
 
     def build(items):
         labor = sum(o.labor_alloc or 0 for o in items)
         mats = sum(o.materials_alloc or 0 for o in items)
-        return {"count": len(items), "labor": labor, "materials": mats, "sum": labor + mats}
+        return {"count": len(items), "labor": labor, "materials": mats, "sum": labor + mats,
+                "total_materials": sum(o.total_materials_cost or 0 for o in items),
+                "estimated": sum(o.estimated_total or 0 for o in items)}
 
     table = _grouped_table(approved, dim, ctx, columns, build)
     return Report(f"المبالغ المخصصة حسب {GROUP_BY[dim]}", filters_text, [table],
-                  ["يشمل التقرير أوامر العمل الحاصلة على موافقة المدير العام فقط."])
+                  ["يشمل التقرير أوامر العمل الحاصلة على موافقة المدير العام فقط (المبالغ بالدينار العراقي).",
+                   "الكلفة الكلية التخمينية = الكلفة الكلية للمواد + أجور العمل."], landscape=True)
 
 
 def _detail_columns(material_items: list[LookupItem]) -> list[Column]:
@@ -372,22 +377,24 @@ def _detail_columns(material_items: list[LookupItem]) -> list[Column]:
         Column("order_no", "رقم أمر العمل", "int", in_print=False, width=10),
         Column("order_year", "السنة", "int", in_print=False, width=8),
         Column("order_type", "نوع الأمر", width=12, pct=5),
-        Column("project_name", "اسم المشروع", width=40, pct=14),
-        Column("work", "نوع العمل", in_excel=False, pct=10),
+        Column("project_name", "اسم المشروع", width=40, pct=12),
+        Column("work", "نوع العمل", in_excel=False, pct=9),
         Column("work_type", "نوع العمل", in_print=False, width=20),
         Column("voltage", "مستوى الجهد", in_print=False, width=10),
         Column("tech_class", "التصنيف الفني", in_print=False, width=18),
-        Column("sector", "القطاع", width=14, pct=6),
+        Column("sector", "القطاع", width=14, pct=5),
         Column("submit", "كتاب الرفع", in_excel=False, pct=6),
         Column("submit_no", "رقم كتاب الرفع", in_print=False, width=12),
         Column("submit_date", "تاريخ كتاب الرفع", "date", in_print=False, width=12),
-        Column("response_print", "رد الشركة العامة", in_excel=False, pct=7),
+        Column("response_print", "رد الشركة العامة", in_excel=False, pct=6),
         Column("response", "رد الشركة العامة", in_print=False, width=14),
         Column("response_no", "رقم كتاب الرد", in_print=False, width=12),
         Column("response_date", "تاريخ كتاب الرد", "date", in_print=False, width=12),
-        Column("labor_alloc", "تخصيص الأجور", "money", total=True, width=16, pct=7),
-        Column("materials_alloc", "تخصيص المواد", "money", total=True, width=16, pct=7),
-        Column("head", "رئيس اللجنة", width=20, pct=7),
+        Column("labor_alloc", "أجور العمل", "money", total=True, width=16, pct=7),
+        Column("materials_alloc", "كلفة المواد غير المتوفرة", "money", total=True, width=18, pct=7),
+        Column("total_materials_cost", "الكلفة الكلية للمواد", "money", total=True, width=18, in_print=False),
+        Column("estimated_total", "الكلفة التخمينية الكلية", "money", total=True, width=18, pct=7),
+        Column("head", "رئيس اللجنة", width=20, pct=6),
         Column("start", "أمر المباشرة", in_excel=False, pct=6),
         Column("start_no", "رقم أمر المباشرة", in_print=False, width=12),
         Column("start_date", "تاريخ الأمر الإداري بالمباشرة", "date", in_print=False, width=14),
@@ -398,7 +405,7 @@ def _detail_columns(material_items: list[LookupItem]) -> list[Column]:
         Column("cancel_no", "رقم كتاب الإلغاء", in_print=False, width=12),
         Column("cancel_date", "تاريخ الإلغاء", "date", in_print=False, width=12),
         Column("status", "الحالة", "status", width=22, pct=6),
-        Column("rolled", "التدوير", width=14, pct=5),
+        Column("rolled", "التدوير", width=14, pct=4),
     ]
     for m in material_items:
         cols.append(Column(f"mat_{m.id}", f"{m.name} ({m.unit})", "int", in_print=False, total=True, width=16))
@@ -462,6 +469,8 @@ def report_detail(orders, ctx, filters_text) -> Report:
             "response_date": o.response_date if responded else None,
             "labor_alloc": o.labor_alloc,
             "materials_alloc": o.materials_alloc,
+            "total_materials_cost": o.total_materials_cost,
+            "estimated_total": o.estimated_total,
             "head": o.committee_head_name or "",
             "start": _start_lines(o),
             "start_no": o.start_no or "",
@@ -566,26 +575,26 @@ def report_group(orders, ctx, filters_text, title_name: str = "") -> Report:
     # 1) الكلف
     cost_rows = []
     for i, o in enumerate(ordered, start=1):
-        labor, mats = o.labor_alloc, o.materials_alloc
-        total = (labor or 0) + (mats or 0) if (labor is not None or mats is not None) else None
         cost_rows.append({
             "seq": i, "ref": f"{o.order_no}/{o.order_year}", "order_type": o.order_type_label,
             "project_name": o.project_name, "work": o.work_description,
             "status": compute_status(o, ctx.today),
-            "labor": labor, "materials": mats, "total": total,
+            "labor": o.labor_alloc, "materials": o.materials_alloc,
+            "total_materials": o.total_materials_cost, "estimated": o.estimated_total,
         })
     costs = Table(
-        title="الكلف (مبالغ التخصيص الواردة بكتب الموافقة)",
+        title="الكلف (بالدينار العراقي)",
         columns=[
-            Column("seq", "ت", "int", width=6, pct=4),
-            Column("ref", "أمر العمل", width=12, pct=7),
-            Column("order_type", "نوع الأمر", width=12, pct=8),
-            Column("project_name", "اسم المشروع", width=40, pct=25),
-            Column("work", "نوع العمل", width=26, pct=14),
-            Column("status", "الحالة", "status", width=22, pct=12),
-            Column("labor", "تخصيص أجور العمل", "money", total=True, width=18, pct=10),
-            Column("materials", "تخصيص شراء المواد", "money", total=True, width=18, pct=10),
-            Column("total", "المجموع", "money", total=True, width=18, pct=10),
+            Column("seq", "ت", "int", width=6, pct=3),
+            Column("ref", "أمر العمل", width=12, pct=6),
+            Column("order_type", "نوع الأمر", width=12, pct=7),
+            Column("project_name", "اسم المشروع", width=40, pct=20),
+            Column("work", "نوع العمل", width=26, pct=12),
+            Column("status", "الحالة", "status", width=22, pct=11),
+            Column("labor", "أجور العمل", "money", total=True, width=18, pct=10),
+            Column("materials", "كلفة المواد غير المتوفرة", "money", total=True, width=18, pct=10),
+            Column("total_materials", "الكلفة الكلية للمواد", "money", total=True, width=18, pct=10),
+            Column("estimated", "الكلفة الكلية التخمينية", "money", total=True, width=20, pct=11),
         ],
         rows=cost_rows,
         empty_text="لا توجد أوامر عمل في المجموعة.",
@@ -634,8 +643,8 @@ def report_group(orders, ctx, filters_text, title_name: str = "") -> Report:
     title = f"كلف ومواد مجموعة أوامر العمل: {title_name}" if title_name else "كلف ومواد أوامر العمل المختارة"
     notes = [
         f"عدد أوامر العمل: {len(ordered)}",
-        "الكلف هي مبالغ التخصيص الواردة بكتب الموافقة (أجور العمل + شراء المواد غير المتوفرة)؛ "
-        "الأمر الذي لم ترد موافقته لا يتضمن مبالغ.",
+        "الكلفة الكلية التخمينية = الكلفة الكلية للمواد + أجور العمل.",
+        "مبالغ أوامر العمل التي لم ترد موافقتها هي المبالغ المطلوبة عند الإعداد؛ وبعد الموافقة هي المبالغ المعتمدة.",
         "المواد الحاكمة تخص أوامر عمل الشبكة الكهربائية فقط. القابلوات والأسلاك بالمتر، والأعمدة والمحولات بالعدد.",
     ]
     return Report(title, filters_text, tables, notes, landscape=True)

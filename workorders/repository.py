@@ -24,7 +24,7 @@ class LookupError_(Exception):
 _ORDER_COLUMNS = [
     "order_no", "order_year", "order_type", "project_name", "work_type", "voltage",
     "tech_class", "sector_id", "submit_no", "submit_date", "response", "response_no",
-    "response_date", "labor_alloc", "materials_alloc", "committee_head_id", "start_no",
+    "response_date", "labor_alloc", "materials_alloc", "total_materials_cost", "committee_head_id", "start_no",
     "start_date", "actual_start_date", "close_no", "close_date", "cancel_no", "cancel_date", "notes",
 ]
 _DATE_COLUMNS = {"submit_date", "response_date", "start_date", "actual_start_date", "close_date", "cancel_date"}
